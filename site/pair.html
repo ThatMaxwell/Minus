@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="#0b0b0c" />
+  <title>Add this device to Minus</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Serif&family=Geist:wght@400;500;600&display=swap" />
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; min-height: 100svh; display: grid; place-items: center; background: radial-gradient(900px 500px at 50% -120px, #1b1b20, #0b0b0c 70%) #0b0b0c; color: #ededeb; font: 400 16px/1.5 Geist, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    main { width: min(420px, calc(100% - 40px)); text-align: center; }
+    svg { width: 84px; height: 84px; }
+    h1 { font: 400 34px/1.15 "PT Serif", Georgia, serif; letter-spacing: -0.02em; margin: 18px 0 8px; }
+    p { color: #a2a2a7; margin: 0 0 22px; }
+    a.btn { display: flex; align-items: center; justify-content: center; height: 52px; border-radius: 26px; background: #f3f2ee; color: #0b0b0c; font-weight: 600; text-decoration: none; margin-bottom: 12px; }
+    a.btn.quiet { background: #19191c; color: #ededeb; box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); }
+    small { display: block; color: #6c6c72; margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <main>
+    <svg viewBox="-112 -112 224 224" aria-hidden="true"><use href="#b" /></svg>
+    <h1>Add this device</h1>
+    <p id="msg">Open Minus to finish signing in. The code works once and expires in five minutes.</p>
+    <a class="btn" id="open" href="#">Open Minus</a>
+    <a class="btn quiet" href="https://github.com/ThatMaxwell/Minus/releases">Get Minus for Android</a>
+    <small>Only use codes from your own computer: a code signs in as whoever made it.</small>
+  </main>
+  <script type="module">
+    import { avatarSVG, installDefs, COLORS } from './js/shape.js';
+    installDefs();
+    document.querySelector('svg').outerHTML = avatarSVG(COLORS.cloud, { box: 112 });
+    const code = new URLSearchParams(location.hash.slice(1)).get('code');
+    const open = document.getElementById('open');
+    if (!code || !/^[0-9a-f]{48}$/.test(code)) {
+      document.getElementById('msg').textContent = 'This link is missing its code. Make a new one in Minus on your computer: Settings → Devices → New.';
+      open.remove();
+    } else {
+      open.href = `minus://pair?code=${code}`;
+      // on a phone with Minus installed this opens the app straight away
+      if (/Android/i.test(navigator.userAgent)) setTimeout(() => (location.href = open.href), 300);
+    }
+  </script>
+</body>
+</html>

@@ -1,3 +1,5 @@
 node_modules/
 site/build/test-*.html
 promo/
+dist-test/
+target/

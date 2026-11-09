@@ -267,6 +267,12 @@ export function msgHTML(a, m, prev, cont) {
       <div class="bar"><i style="width:${pct}%"></i></div>
       <div class="st-list">${(m.steps || []).map((s, i, arr) => `<div class="st ${i === arr.length - 1 && m.live ? 'run' : 'done'}"><span class="ic">${i === arr.length - 1 && m.live ? '<i class="spin"></i>' : icon('check')}</span>${esc(s)}</div>`).join('') || '<div class="st run"><span class="ic"><i class="spin"></i></span>Starting…</div>'}</div>
     </div>`;
+  } else if (m.kind === 'question') {
+    body = `<div class="card q-card ${m.answered ? 'done' : ''}">
+      <div class="card-h">${icon('edit')}<span>${m.answered ? 'Answered' : 'Needs an answer'}</span></div>
+      <p class="ask-what">${esc(m.text)}</p>
+      <p class="ask-detail">${m.answered ? `You said “${esc(m.answered)}”` : 'Reply below, or right from the dock.'}</p>
+    </div>`;
   } else if (m.kind === 'approval') {
     const done = m.state !== 'pending';
     body = `<div class="card ask-card ${m.state}">

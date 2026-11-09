@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Minus",
+  "mainBinaryName": "minus",
+  "version": "0.1.0",
+  "identifier": "app.getminus.minus",
+  "build": {
+    "frontendDist": "../dist",
+    "beforeDevCommand": "npm run ui",
+    "beforeBuildCommand": "npm run ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Minus",
+        "url": "index.html",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true,
+        "visible": false,
+        "decorations": false,
+        "backgroundColor": "#0b0b0c"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "ThatMaxwell",
+    "copyright": "MIT · ThatMaxwell and Minus contributors",
+    "category": "Productivity",
+    "shortDescription": "A free, open-source team of AI agents",
+    "longDescription": "Minus gives each AI agent a job and its own computer. Bring the AI you already pay for.",
+    "homepage": "https://getminus.vercel.app",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "linux": {
+      "deb": { "depends": [] },
+      "appimage": { "bundleMediaFramework": false }
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": { "schemes": ["minus"] },
+      "mobile": [{ "scheme": ["minus"], "appLink": false }]
+    }
+  }
+}

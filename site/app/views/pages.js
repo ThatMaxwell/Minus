@@ -1,11 +1,12 @@
 // Approvals, Routines, Computers and Settings.
 import { state, on, agent, go, save, emit, pendingApprovals, providerState, reset, id } from '../store.js';
-import { $, $$, esc, icon, face, mountMascots, mascotsOf, toast, sheet, motion, IN } from '../ui.js';
+import { $, $$, esc, icon, face, mountMascots, mascotsOf, toast, sheet, motion, IN, timeAgo } from '../ui.js';
 import { react, act } from '../director.js';
 import { resolve } from '../brain.js';
 import { PROVIDERS, provider } from '../data.js';
 import { VOICES, voiceOf, cap, getKey, setKey, hasKey, readMode, speak, stopSpeaking } from '../voice.js';
 import { updateAgent } from '../store.js';
+import * as acct from '../account.js';
 
 const head = (title, sub, actions = '') => `<header class="pg-h"><div><h1>${title}</h1><p class="muted">${sub}</p></div><div class="pg-act">${actions}</div></header>`;
 let off = [];
@@ -120,7 +121,15 @@ export function computers(main) {
 export function settings(main) {
   clear(); main.onclick = null;
   const draw = () => {
-    main.innerHTML = `<section class="page narrow">${head('Settings', 'Everything stays on this computer.')}
+    main.innerHTML = `<section class="page narrow">${head('Settings', 'Your AI keys stay on this computer. Your agents and chats sync to your devices.')}
+      <h2 class="sec-h">Account</h2>
+      <div class="set-list">${acct.user() ? `
+        <div class="set-row"><img class="avatar" src="${esc(acct.user().user_metadata?.avatar_url || '')}" alt=""><span class="set-t"><b>@${esc(acct.login())}</b><small>Signed in with GitHub</small></span><button class="btn btn-quiet btn-sm" data-acct="out">Sign out</button></div>` : `
+        <div class="set-row"><span class="prov-ic">${icon('github')}</span><span class="set-t"><b>Sign in to Minus</b><small>${acct.configured() ? 'Use your agents from your phone and your other computers' : 'Sign-in isn’t set up on this build yet'}</small></span><button class="btn btn-primary btn-sm" data-acct="in" ${acct.configured() ? '' : 'disabled'}>${icon('github')}<span>Sign in with GitHub</span></button></div>`}
+      </div>
+      ${acct.user() ? `<h2 class="sec-h row-h"><span>Devices</span><button class="btn btn-quiet btn-sm" data-newdev>${icon('plus')}<span>New</span></button></h2>
+      <p class="muted small">Your phone controls your agents. Your computers are where they work.</p>
+      <div class="set-list" id="dev-list"><div class="set-row"><span class="set-t"><small>Loading…</small></span></div></div>` : ''}
       <h2 class="sec-h">Your AI</h2><p class="muted small">Connect the subscriptions and API keys you already have. Minus never charges for AI.</p>
       <div class="set-list">${PROVIDERS.map((p) => { const ps = providerState(p.id); return `
         <div class="set-row" data-p="${p.id}"><span class="prov-ic">${p.icon}</span><span class="set-t"><b>${p.name}</b><small>${ps.connected ? (ps.key ? 'Key ' + esc(ps.key) : p.local ? 'Running on this computer' : 'Connected') : esc(p.by)}</small></span>
@@ -145,7 +154,15 @@ export function settings(main) {
         <div class="set-row"><span class="set-t"><b>Reset this preview</b><small>Brings back the example agents and conversations</small></span><button class="btn btn-quiet btn-sm" data-reset>Reset</button></div></div>
     </section>`;
     mountMascots(main, agent);
+    fillDevices();
   };
+  const fillDevices = async () => {
+    const list = $('#dev-list', main); if (!list) return;
+    const mine = acct.deviceId(), ds = await acct.devices();
+    if (!list.isConnected) return;
+    list.innerHTML = ds.map((d) => `<div class="set-row"><span class="prov-ic">${icon(d.kind === 'phone' ? 'phone' : 'laptop')}</span><span class="set-t"><b>${esc(d.name)}${d.id === mine ? ' <span class="tag">This device</span>' : ''}</b><small>${esc({ windows: 'Windows', macos: 'macOS', linux: 'Linux', android: 'Android' }[d.platform] || d.platform)} · ${d.kind === 'phone' ? 'Controls your agents' : 'Agents can work here'} · seen ${timeAgo(new Date(d.last_seen).getTime())}</small></span>${d.id === mine ? '' : `<button class="btn btn-quiet btn-sm" data-rmdev="${esc(d.id)}">Remove</button>`}</div>`).join('') || '<div class="set-row"><span class="set-t"><small>No devices yet</small></span></div>';
+  };
+  off.push(on('account', draw), on('devices', fillDevices));
   const tog = (k, t, d) => `<div class="set-row"><span class="set-t"><b>${t}</b><small>${d}</small></span><button class="switch ${state.settings[k] ? 'on' : ''}" role="switch" aria-checked="${!!state.settings[k]}" data-set="${k}" aria-label="${t}"><i></i></button></div>`;
   draw();
   main.onclick = (e) => {
@@ -162,6 +179,14 @@ export function settings(main) {
       if (k === 'lively') document.documentElement.classList.toggle('calm', !state.settings.lively);
     }
     if (e.target.closest('[data-reset]')) reset();
+    const ac = e.target.closest('[data-acct]');
+    if (ac) {
+      if (ac.dataset.acct === 'out') acct.signOut();
+      else acct.signIn().catch((err) => toast(err.message || 'Couldn’t sign in', { icon: 'x' }));
+    }
+    if (e.target.closest('[data-newdev]')) pairSheet();
+    const rm = e.target.closest('[data-rmdev]');
+    if (rm) acct.removeDevice(rm.dataset.rmdev).then(() => toast('Device removed', { icon: 'trash' }));
     if (e.target.closest('[data-vkey]')) {
       if (hasKey()) { setKey(''); stopSpeaking(); toast('Groq key removed', { icon: 'x' }); return draw(); }
       return keySheet(draw);
@@ -176,6 +201,39 @@ export function settings(main) {
       speak(aid, `Hi, I’m ${ag.name}. This is how I sound.`, { voice: v }).catch((err) => toast(err.human, { icon: 'speaker' }));
     }
   };
+}
+
+// New device: a QR code your phone scans to sign in as you. Single use, gone in 5 minutes.
+function pairSheet() {
+  const s = sheet(`<div class="mini-form pair"><h3>${icon('phone')} Add a device</h3>
+    <div class="qr-box"><div class="qr">${icon('phone')}</div></div>
+    <p class="small">Open the camera on your phone and point it at the code. Minus opens and signs in.</p>
+    <p class="muted small warn-line">This code signs in as you. Only scan it with your own devices.</p>
+    <div class="row-end"><span class="muted small" data-left></span><button class="btn btn-quiet btn-sm" data-copy>${icon('copy')}<span>Copy link</span></button><button class="btn btn-primary btn-sm" data-x>Done</button></div></div>`, { cls: 'small' });
+  let link = '', timer = 0;
+  const make = async () => {
+    const box = $('.qr-box', s.el);
+    box.classList.remove('expired');
+    try {
+      const p = await acct.makePairCode();
+      link = p.link;
+      box.innerHTML = acct.qrSVG(p.link, 220);
+      motion().animate(box.firstElementChild, { opacity: [0, 1], scale: [0.92, 1], filter: ['blur(6px)', 'blur(0px)'] }, { duration: 0.4, ease: IN });
+      clearInterval(timer);
+      timer = setInterval(() => {
+        const left = Math.max(0, p.expires - Date.now());
+        const el = $('[data-left]', s.el); if (!el) return clearInterval(timer);
+        el.textContent = left ? `Expires in ${Math.floor(left / 60000)}:${String(Math.floor(left / 1000) % 60).padStart(2, '0')}` : '';
+        if (!left) { clearInterval(timer); box.classList.add('expired'); box.innerHTML = '<button class="btn btn-quiet btn-sm" data-again>Make a new code</button>'; }
+      }, 500);
+    } catch (err) { box.innerHTML = `<p class="small">${esc(err.message || 'Couldn’t make a code')}</p>`; }
+  };
+  s.el.addEventListener('click', (e) => {
+    if (e.target.closest('[data-x]')) { clearInterval(timer); s.close(); }
+    if (e.target.closest('[data-again]')) make();
+    if (e.target.closest('[data-copy]') && link) navigator.clipboard.writeText(link).then(() => toast('Link copied'));
+  });
+  make();
 }
 
 // Ask for the Groq key. It's checked with a real request before it's kept.

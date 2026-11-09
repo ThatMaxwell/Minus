@@ -1,0 +1,8 @@
+[package]
+name = "minus-hands"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hands = { version = "0.1.0", path = "../hands" }
+serde_json = "1.0.154"

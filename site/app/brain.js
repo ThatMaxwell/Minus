@@ -7,6 +7,22 @@ import { react } from './director.js';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const busy = new Set();
 
+// Questions that need a typed answer. Whatever you say next (in the chat or the dock) answers it.
+const waiting = new Map(); // agent -> { mid, resolve }
+function question(aid, text, placeholder) {
+  const m = post(aid, { from: 'agent', kind: 'question', text, placeholder });
+  updateAgent(aid, { status: 'waiting', statusText: 'Needs an answer' });
+  react(aid, 'ask');
+  return new Promise((resolve) => waiting.set(aid, { mid: m.mid, resolve }));
+}
+function answer(aid, text) {
+  const w = waiting.get(aid); if (!w) return false;
+  waiting.delete(aid);
+  patchMessage(aid, w.mid, { answered: text });
+  w.resolve(text);
+  return true;
+}
+
 const RISKY = /\b(send|email|mail|reply|post|tweet|publish|buy|pay|order|book|delete|remove|cancel|transfer|invite)\b/i;
 const TASK = /\b(add|find|research|fill|update|import|check|look|search|collect|match|compare|summari[sz]e|list|clean|organi[sz]e|reproduce|test|fix|plan|schedule|draft|write|make|create|build|open|go)\b/i;
 
@@ -20,7 +36,9 @@ const plan = (text) => {
 };
 
 export async function respond(aid, text) {
-  const a = agent(aid); if (!a || busy.has(aid)) return;
+  const a = agent(aid); if (!a) return;
+  if (answer(aid, text.trim())) return;
+  if (busy.has(aid)) return;
   busy.add(aid);
   const prevStatus = a.status;
   updateAgent(aid, { status: 'working', statusText: 'Thinking…' });
@@ -79,6 +97,14 @@ export async function work(aid, text) {
   for (let i = 0; i < steps.length; i++) {
     await wait(1100 + Math.random() * 900);
     if (agent(aid)?.status === 'paused') { patchMessage(aid, msg.mid, { live: false, title: 'Paused' }); emit('work', { agent: aid, on: false }); return; }
+    // some jobs need a detail only you know: ask, wait, carry on
+    if (i === 3 && /crm|lead/i.test(text)) {
+      const tag = await question(aid, 'Quick one: what tag should these leads get in the CRM?', 'e.g. Webinar Nov 9');
+      post(aid, { from: 'agent', text: `Got it. I’ll tag them “${tag}”.` });
+      updateAgent(aid, { status: 'working', statusText: steps[i] });
+      react(aid, 'yes');
+      await wait(600);
+    }
     list.push(steps[i]);
     patchMessage(aid, msg.mid, { steps: list.slice(-5), done: i + 1 });
     updateAgent(aid, { statusText: steps[i + 1] || 'Wrapping up' });

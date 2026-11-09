@@ -5,11 +5,11 @@ set -euo pipefail
 OUT="$1"; V="$2"
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 rm -rf "$OUT"; mkdir -p "$OUT"
-cp -r "$SRC/index.html" "$SRC/lab.html" "$SRC/test.html" "$SRC/css" "$SRC/js" "$SRC/app" "$SRC/vendor" "$OUT/"
+cp -r "$SRC/index.html" "$SRC/lab.html" "$SRC/test.html" "$SRC/dock.html" "$SRC/pair.html" "$SRC/css" "$SRC/js" "$SRC/app" "$SRC/vendor" "$OUT/"
 touch "$OUT/.nojekyll"
 # index.html: <link href="css/..">, <script src="js/.."|"vendor/..">, and the three.js import map entry
-for f in index.html lab.html test.html; do sed -i -E "s#(href|src)=\"(css|js|vendor|app)/([^\"?]+)\"#\1=\"\2/\3?v=$V\"#g" "$OUT/$f"; done
-sed -i -E "s#\"\./vendor/three\.module\.js\"#\"./vendor/three.module.js?v=$V\"#" "$OUT/index.html" "$OUT/lab.html" "$OUT/test.html"
+for f in index.html lab.html test.html dock.html pair.html; do sed -i -E "s#(href|src)=\"(css|js|vendor|app)/([^\"?]+)\"#\1=\"\2/\3?v=$V\"#g" "$OUT/$f"; done
+sed -i -E "s#\"\./vendor/three\.module\.js\"#\"./vendor/three.module.js?v=$V\"#" "$OUT/index.html" "$OUT/lab.html" "$OUT/test.html" "$OUT/dock.html"
 # ES module imports between our own files
 sed -i -E "s#(from '\.{1,2}/[^'?]+\.js)'#\1?v=$V'#g" "$OUT"/js/*.js "$OUT"/app/*.js "$OUT"/app/views/*.js
 echo "Stamped $OUT with v=$V"

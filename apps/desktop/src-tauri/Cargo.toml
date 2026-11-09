@@ -1,0 +1,26 @@
+[package]
+name = "minus-desktop"
+version = "0.1.0"
+description = "Minus: a free, open-source team of AI agents"
+authors = ["ThatMaxwell"]
+license = "MIT"
+edition = "2021"
+
+[lib]
+name = "minus_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+hands = { version = "0.1.0", path = "../../../crates/hands" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-deep-link = "2"
+tauri-plugin-opener = "2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }

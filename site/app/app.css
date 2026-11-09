@@ -307,3 +307,31 @@ html.calm *, html.calm *::before { animation-play-state: paused !important; }
 .m.say-wait .say .i { animation: recPulse 1s ease-in-out infinite; }
 .voice-seg button { padding: 0 8px; }
 @media (max-width: 900px) { .voice-seg { flex-wrap: wrap; } }
+
+/* ───────── desktop window controls (frameless window) ───────── */
+.wc { display: flex; margin-left: 8px; margin-right: -10px; height: 44px; }
+.wc button { width: 46px; height: 44px; display: grid; place-items: center; color: var(--fg-2); transition: background .15s, color .15s; }
+.wc button:hover { background: rgba(255,255,255,.07); color: var(--fg); }
+.wc .wc-x:hover { background: #c42b1c; color: #fff; }
+.wc svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.1; }
+.traffic i { cursor: default; }
+
+/* the dock, floating over the page in the web preview (the desktop app has a real one) */
+.dock-frame { position: fixed; top: 52px; left: 50%; translate: -50% 0; width: 76px; height: 64px; border: 0; background: transparent; z-index: 70; color-scheme: dark; }
+
+/* a question that needs a typed answer */
+.q-card .card-h { color: var(--amber); } .q-card.done .card-h { color: var(--fg-3); }
+.q-card { padding-bottom: 12px; }
+
+/* ───────── account & devices ───────── */
+.avatar { width: 30px; height: 30px; border-radius: 50%; flex: none; background: var(--bg-3); }
+.sec-h.row-h { display: flex; align-items: center; justify-content: space-between; }
+.tag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 99px; font-size: 11px; font-weight: 500; color: var(--mint); background: rgba(95,207,166,.12); vertical-align: 1px; }
+.pair { text-align: center; }
+.pair h3 { justify-content: center; }
+.qr-box { width: 236px; height: 236px; margin: 14px auto 12px; display: grid; place-items: center; border-radius: 22px; background: var(--bg-2); box-shadow: var(--hi); }
+.qr-box .qr .i { width: 28px; height: 28px; color: var(--fg-3); animation: recPulse 1s ease-in-out infinite; }
+.qr-box.expired { background: var(--bg-1); }
+.warn-line { color: var(--amber); margin-top: 6px; }
+.pair .row-end { align-items: center; margin-top: 14px; }
+.pair [data-left] { margin-right: auto; font-variant-numeric: tabular-nums; }

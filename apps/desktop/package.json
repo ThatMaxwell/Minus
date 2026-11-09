@@ -1,0 +1,15 @@
+{
+  "name": "minus-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "ui": "node scripts/build-ui.mjs",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "icons": "tauri icon icons/source.png"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
