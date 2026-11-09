@@ -1,0 +1,19 @@
+{
+  "name": "minus-site",
+  "version": "1.0.0",
+  "description": "Minus landing site",
+  "scripts": {
+    "start": "node server.js",
+    "vendor": "esbuild build/elementary-entry.js --bundle --format=esm --minify --legal-comments=eof --outfile=vendor/elementary.js && cp node_modules/motion/dist/motion.js vendor/motion.js && cp node_modules/three/build/three.module.js vendor/three.module.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@elemaudio/core": "4.0.1",
+    "@elemaudio/web-renderer": "4.0.3",
+    "esbuild": "0.28.1",
+    "motion": "14.3.1",
+    "three": "0.170.0"
+  }
+}
