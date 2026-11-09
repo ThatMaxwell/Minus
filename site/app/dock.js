@@ -175,7 +175,7 @@ function moods() {
   for (const w of S.working) {
     const f = faces.get(w.id); if (!f) continue;
     if (w.pulse > f.pulse) { f.pulse = w.pulse; f.m.gesture('nod'); }
-    mood(w.id, 'focused');
+    mood(w.id, w.feel || 'focused');
   }
   for (const q of S.asks) mood(q.agent.id, q.kind === 'approval' ? 'worried' : 'curious');
 }

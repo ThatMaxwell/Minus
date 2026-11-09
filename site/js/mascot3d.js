@@ -94,6 +94,16 @@ const SHAPES = {
 // Emotion = per-eye shape + eye transform + body behaviour + face extras.
 //   scale/sy: eye size; kL/kR: per-eye size; dy: eye height; motion: body loop;
 //   particles: '?', '!', '…', 'z' or 'sparkle'; blush; sweat; tears; tint; noBlink
+// How an agent behaves when nothing is going on. You choose this; its expressions are its own.
+export const IDLES = {
+  calm:    { label: 'Calm', hint: 'Looks around now and then' },
+  curious: { label: 'Curious', hint: 'Glances everywhere, tilts its head' },
+  bouncy:  { label: 'Bouncy', hint: 'Can’t sit still: little hops' },
+  dreamy:  { label: 'Dreamy', hint: 'Gazes up, slow blinks' },
+  shy:     { label: 'Shy', hint: 'Looks down, peeks at you' },
+  busy:    { label: 'Busy', hint: 'Eyes on its work, quick checks' },
+};
+
 export const EMOTIONS = {
   neutral:    { L: 'open', R: 'open' },
   happy:      { L: 'happy', R: 'happy', dy: 0.02, motion: 'bounce', blush: 0.6 },
@@ -686,7 +696,7 @@ export class Mascot3D {
   //   follow (eyes follow the pointer), shared (draw through the page-wide renderer: use for all but one big mascot),
   //   frame (view half-height in body radii; ~1.6 leaves room for hats), room (lots of space: hops move the body),
   //   scale (start size; 0 to pop in later), still (no animation loop; for thumbnails)
-  constructor(canvas, { color = COLORS.cloud, idle = true, follow = false, scale = 1, room = false, emotion = 'neutral', cosmetic, outfit, shared = false, frame = 1.12, still = false } = {}) {
+  constructor(canvas, { color = COLORS.cloud, idle = true, follow = false, scale = 1, room = false, emotion = 'neutral', cosmetic, outfit, shared = false, frame = 1.12, still = false, idleStyle = 'calm' } = {}) {
     this.viewH = frame;
     this.canvas = canvas; this.room = room; this.shared = shared;
     // No WebGL (hardware acceleration off, blocked GPU)? Fall back to a flat 2D drawing of the
@@ -732,7 +742,7 @@ export class Mascot3D {
     this.pop = new Spring(260, 0.45); this.pop.x = this.pop.target = scale;
     this.lookX = 0; this.lookY = 0;
     this.blinkT = null; this.blinksLeft = 0; this.blinkWait = 0;
-    this.idle = idle; this.follow = follow; this.pointerT = 0;
+    this.idle = idle; this.follow = follow; this.pointerT = 0; this.idleStyle = IDLES[idleStyle] ? idleStyle : 'calm';
     this.nextBlink = rand(1.5, 3); this.nextLook = rand(1.5, 3);
     this.t = 0; this.emoT = 0; this.g = null;
     this.st = { sx: 1, sy: 1, dy: 0, tint: 0, kL: 1, kR: 1, blush: 0 };
@@ -774,6 +784,7 @@ export class Mascot3D {
 
   /* ───────── identity ───────── */
   setColor(c) { this.baseColor.set(c); }
+  setIdleStyle(s) { this.idleStyle = IDLES[s] ? s : 'calm'; }
   setScale(s, instant = false) { this.pop.target = s; if (instant) { this.pop.x = s; this.pop.v = 0; } }
   setEmotion(name, snap = false) {
     const e = EMOTIONS[name] || EMOTIONS.neutral;
@@ -916,7 +927,11 @@ export class Mascot3D {
       if (!e.noBlink && (this.nextBlink -= dt) <= 0) { this.blink(Math.random() < 0.18 ? 2 : 1); this.nextBlink = rand(2.2, 5.5); }
       if (this.pointerT > 0) this.pointerT -= dt;
       else if ((this.nextLook -= dt) <= 0) {
-        const m = e.motion;
+        // while it feels something, the feeling moves it; at rest, its idle style does
+        const rest = this.emotion === 'neutral';
+        const m = rest ? { curious: 'glance', shy: 'shy', busy: 'work', dreamy: 'dream' }[this.idleStyle] : e.motion;
+        if (m === 'dream') { this.look(rand(-0.6, 0.6), rand(0.45, 0.9), { noBlink: true }); this.nextLook = rand(3, 5.5); }
+        else {
         if (m === 'glance') this.look(Math.random() < 0.5 ? -0.85 : 0.85, -0.1, { noBlink: true });
         else if (m === 'droop' || m === 'shy') this.look(rand(-0.5, 0.5), -0.55, { noBlink: true });
         else if (m === 'ponder') this.look(rand(-0.7, -0.3), rand(0.5, 0.8), { noBlink: true });
@@ -924,6 +939,14 @@ export class Mascot3D {
         else if (Math.random() < 0.4 && Math.hypot(this.lookX, this.lookY) > 0.3) this.look(rand(-0.15, 0.15), rand(-0.1, 0.15));
         else this.look(rand(-1, 1), rand(-0.6, 0.8));
         this.nextLook = m === 'glance' ? rand(1.2, 2) : m === 'work' ? rand(0.8, 1.6) : rand(1.6, 3.8);
+        }
+      }
+      if (this.emotion === 'neutral' && !this.g) {
+        const s = this.idleStyle;
+        if (s === 'bouncy' && this.hopT !== undefined && this.hopT >= 0.9 && Math.random() < dt * 0.12) this.hopT = 0;
+        else if (s === 'bouncy' && this.hopT === undefined && Math.random() < dt * 0.12) this.hopT = 0;
+        if (s === 'curious' && Math.random() < dt * 0.05) this.gesture('tilt');
+        if (s === 'shy' && Math.random() < dt * 0.04) this.gesture('peek');
       }
     }
     if (e.motion === 'hops' && this.hopT !== undefined && this.hopT >= 0.9 && Math.random() < dt * 1.2) this.hopT = 0;

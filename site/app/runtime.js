@@ -3,7 +3,7 @@
 // Minus Hands. Anywhere else (the web preview, or before a key is added) the demo brain in
 // brain.js plays the part. Both post the same kinds of messages, so the UI doesn't care.
 import { state, agent, computer, post, patchMessage, updateAgent, emit, providerState } from './store.js';
-import { react } from './director.js';
+import { react, feel } from './director.js';
 import { PERMISSIONS } from './data.js';
 import * as nb from './notebook.js';
 
@@ -142,6 +142,11 @@ export function listen() {
         break;
       case 'remember':
         nb.add(aid, e.text, 'agent');
+        break;
+      case 'face':
+        // its own expression, chosen by the agent (the code it wrote never shows)
+        a.feel = e.name; feel(aid, e.name);
+        emit('agent', a);
         break;
       case 'usage':
         if (cur) {

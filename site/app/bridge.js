@@ -21,7 +21,7 @@ function snapshot() {
     const t = state.threads[a.id] || [];
     const steps = [...t].reverse().find((m) => m.kind === 'steps' && m.live);
     if (a.status === 'working') {
-      working.push({ ...looks(a), status: a.statusText || 'Working', done: steps?.done ?? null, total: steps?.total ?? null, pulse: pulses.get(a.id) || 0 });
+      working.push({ ...looks(a), status: a.statusText || 'Working', done: steps?.done ?? null, total: steps?.total ?? null, pulse: pulses.get(a.id) || 0, feel: a.feel || null });
     }
     for (const m of t) {
       if (m.kind === 'approval' && m.state === 'pending') {

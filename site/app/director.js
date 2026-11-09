@@ -44,6 +44,10 @@ export const REACTIONS = {
 export function act(m, name, arg) { if (m && m.running !== false) REACTIONS[name]?.(m, arg); }
 // React with every mascot of one agent (sidebar, header, thread...).
 export function react(agentId, name, arg) { mascotsOf(agentId).forEach((m) => act(m, name, arg)); }
+// The agent's own expression (it chooses these itself while it works), held for a while.
+export function feel(agentId, emotion, ms = 5000) {
+  mascotsOf(agentId).forEach((m) => { if (m.running === false) return; m.setEmotion(emotion); back(m, ms); });
+}
 
 // Nobody touching anything for a while: everyone dozes off. Any input wakes them.
 export function idleWatch(ms = 60000) {

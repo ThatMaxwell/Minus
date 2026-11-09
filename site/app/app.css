@@ -369,3 +369,32 @@ html.calm *, html.calm *::before { animation-play-state: paused !important; }
 .nb-empty { padding: 40px 20px; text-align: center; color: var(--fg-3); font-size: 13.5px; }
 .nb-empty-ic .i { width: 34px; height: 34px; color: var(--fg-3); }
 .nb-fly { position: fixed; left: 0; top: 0; z-index: 100; max-width: 220px; padding: 8px 11px; border-radius: 4px 4px 10px 4px; background: #f6edc8; color: #2b2718; font: 400 12.5px/1.35 var(--serif); box-shadow: 0 16px 30px -10px rgba(0,0,0,.6); pointer-events: none; translate: -50% -50%; }
+
+/* idle animation choices: live previews */
+.tiles.idles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.tile.idle { height: auto; padding: 8px 8px 12px; gap: 2px; }
+.tile.idle .idle-mx { width: 84px; height: 84px; display: block; margin: 0 auto -4px; }
+.tile.idle small { display: block; font-size: 11.5px; color: var(--fg-3); line-height: 1.3; text-align: center; }
+
+/* menus: a drawn check for the current choice */
+.menu-check { margin-left: auto; display: inline-flex; color: var(--mint); } .menu-check .i { width: 14px; height: 14px; }
+.menu button > svg:first-child { width: 16px; height: 16px; flex: none; }
+
+/* ───────── quiet by default: secondary controls show up when you reach for them ───────── */
+@media (hover: hover) {
+  .ch-tools > .icon-btn, .ch-tools > .sep, .tb-r > .icon-btn, .pcp-h .btn, .cmp-row > .icon-btn, .cmp-row > .chip, .cmp-hint {
+    transition: opacity .22s ease, transform .22s cubic-bezier(.22,1,.36,1);
+  }
+  .ch-tools > .icon-btn, .ch-tools > .sep { opacity: 0; transform: translateX(6px); }
+  .ch-h:hover .ch-tools > .icon-btn, .ch-h:hover .ch-tools > .sep, .ch-h:focus-within .ch-tools > .icon-btn, .ch-h:focus-within .ch-tools > .sep,
+  .ch-tools > .icon-btn.on, .ch-tools > .icon-btn[aria-expanded="true"] { opacity: 1; transform: none; }
+  .ch-tools > .chip { opacity: .72; transition: opacity .2s; } .ch-h:hover .ch-tools > .chip { opacity: 1; }
+  .tb-r > .icon-btn { opacity: 0; } .titlebar:hover .tb-r > .icon-btn, .tb-r > .icon-btn:focus-visible { opacity: 1; }
+  .pcp-h .btn { opacity: 0; transform: translateY(-3px); } .pc-panel:hover .pcp-h .btn, .pcp-h .btn:focus-visible { opacity: 1; transform: none; }
+  .cmp-row > .icon-btn:not(.mic.on), .cmp-row > .chip { opacity: 0; transform: translateY(3px); }
+  .cmp-box:hover .cmp-row > .icon-btn, .cmp-box:hover .cmp-row > .chip, .cmp-box:focus-within .cmp-row > .icon-btn, .cmp-box:focus-within .cmp-row > .chip { opacity: 1; transform: none; }
+  .cmp-hint { opacity: 0; } .composer:focus-within .cmp-hint { opacity: 1; }
+  /* the notebook button stays visible while it has something new to show */
+  .ch-tools > .nb-btn.fresh { opacity: 1; transform: none; }
+}
+.menu button > span:not(.menu-check) { white-space: nowrap; }

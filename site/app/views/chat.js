@@ -199,6 +199,7 @@ export function chat(main) {
   // when it learns something, a note flies into its notebook
   off.push(on('remember', ({ agent: aid, note }) => {
     if (aid !== a.id) return;
+    $('.nb-btn', main)?.classList.add('fresh');
     nb.fly(main, a.id, note.text);
     const c = $('.nb-count', main); if (c) { c.hidden = false; c.textContent = nb.count(agent(a.id)); }
     if (note.by !== 'you') react(a.id, 'proud');
@@ -229,10 +230,10 @@ export function chat(main) {
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act;
     if (act === 'model') {
-      return menu(b, PROVIDERS.filter((p) => providerState(p.id)?.connected).map((p) => ({ label: `${p.name}${p.id === a.model ? '  ✓' : ''}`, run: () => { updateAgent(a.id, { model: p.id }); toast(`${a.name} now thinks with ${p.name}`); react(a.id, 'yes'); chat(main); } }))
+      return menu(b, PROVIDERS.filter((p) => providerState(p.id)?.connected).map((p) => ({ label: p.name, checked: p.id === a.model, svg: p.icon, run: () => { updateAgent(a.id, { model: p.id }); toast(`${a.name} now thinks with ${p.name}`); react(a.id, 'yes'); chat(main); } }))
         .concat([]));
     }
-    if (act === 'computer') return menu(b, state.computers.map((c) => ({ label: c.name + (c.id === a.computer ? '  ✓' : ''), icon: c.kind === 'local' ? 'laptop' : 'cloud', run: () => { updateAgent(a.id, { computer: c.id }); toast(`${a.name} moved to ${c.name}`); react(a.id, c.kind === 'local' ? 'peek' : 'yes'); chat(main); } })));
+    if (act === 'computer') return menu(b, state.computers.map((c) => ({ label: c.name, checked: c.id === a.computer, icon: c.kind === 'local' ? 'laptop' : 'cloud', run: () => { updateAgent(a.id, { computer: c.id }); toast(`${a.name} moved to ${c.name}`); react(a.id, c.kind === 'local' ? 'peek' : 'yes'); chat(main); } })));
     if (act === 'look') return openCreate({ edit: a.id, step: 0 });
     if (act === 'pause') {
       if (rt.running(a.id)) { rt.stop(a.id); toast(`${a.name} will stop after this step`, { icon: 'pause' }); return; }
@@ -257,7 +258,7 @@ export function chat(main) {
     if (act === 'giveback') { driving = false; $('.pcp-yours', main).hidden = true; react(a.id, 'giveback'); syncSim(); toast(`${a.name} has the computer again`, { icon: 'hand' }); }
     if (act === 'attach') toast('Drop files here, or paste a screenshot', { icon: 'paperclip' });
     if (act === 'mic') return talk();
-    if (act === 'notebook') return nb.open(main, a.id);
+    if (act === 'notebook') { b.classList.remove('fresh'); return nb.open(main, a.id); }
   };
   // the agent glances at whatever header button you point at
   $('.ch-tools', main).addEventListener('pointerover', (e) => { const b = e.target.closest('button'); if (b) mascotsOf(a.id).forEach((m) => main.contains(m.canvas) && $('.ch-h', main).contains(m.canvas) && m.lookAtEl(b, 1.5)); });

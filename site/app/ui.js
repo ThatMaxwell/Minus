@@ -41,6 +41,7 @@ const P = {
   laptop: '<rect x="4.5" y="5" width="11" height="7.5" rx="1.2"/><path d="M2.5 15h15"/>',
   trash: '<path d="M4.5 6h11M8 6V4.5h4V6M6 6l.7 9.5h6.6L14 6"/>',
   copy: '<rect x="7" y="7" width="9" height="9" rx="1.8"/><path d="M13 7V5.5A1.5 1.5 0 0011.5 4h-6A1.5 1.5 0 004 5.5v6A1.5 1.5 0 005.5 13H7"/>',
+  keyboard: '<rect x="2.5" y="5.5" width="15" height="9" rx="2"/><path d="M5.5 8.5h.01M8.5 8.5h.01M11.5 8.5h.01M14.5 8.5h.01M6.5 11.5h7"/>',
   book: '<path d="M4.5 4.5A1.5 1.5 0 016 3h9.5v12H6a1.5 1.5 0 00-1.5 1.5z"/><path d="M4.5 16.5A1.5 1.5 0 006 18h9.5v-3M7.5 6.5h5M7.5 9h3.5"/>',
   edit: '<path d="M12.5 4.5l3 3-8.5 8.5H4v-3z"/>',
   bolt: '<path d="M11 3.5L5.5 11H10l-1 5.5L14.5 9H10z"/>',
@@ -57,8 +58,9 @@ export const icon = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 20 2
 const live = new Set();
 // A live 3D agent in a canvas that is already on the page.
 export function mascot(canvas, a, opts = {}) {
-  const m = new Mascot3D(canvas, { shared: true, frame: 1.62, idle: state.settings.lively, color: a.color, emotion: opts.emotion || a.emotion || 'neutral', outfit: a.outfit, ...opts });
-  m.agentId = a.id; m.rest = opts.emotion || a.emotion || 'neutral'; live.add(m);
+  // agents rest neutral and idle their own way; how they feel shows up while they work
+  const m = new Mascot3D(canvas, { shared: true, frame: 1.62, idle: state.settings.lively, color: a.color, emotion: opts.emotion || 'neutral', outfit: a.outfit, idleStyle: a.idle || 'calm', ...opts });
+  m.agentId = a.id; m.rest = opts.emotion || 'neutral'; live.add(m);
   return m;
 }
 export const mascotsOf = (aid) => [...live].filter((m) => { if (!m.running) { live.delete(m); return false; } return m.agentId === aid; });
@@ -117,7 +119,7 @@ export function menu(anchor, items, { align = 'left' } = {}) {
   closeMenus();
   const m = document.createElement('div');
   m.className = 'menu'; m.setAttribute('role', 'menu');
-  m.innerHTML = items.map((it, i) => it === '-' ? '<div class="menu-sep"></div>' : `<button role="menuitem" class="${it.danger ? 'danger' : ''}" data-i="${i}">${it.icon ? icon(it.icon) : ''}<span>${esc(it.label)}</span>${it.keys ? `<kbd>${esc(it.keys)}</kbd>` : ''}</button>`).join('');
+  m.innerHTML = items.map((it, i) => it === '-' ? '<div class="menu-sep"></div>' : `<button role="menuitem" class="${it.danger ? 'danger' : ''}" data-i="${i}" ${it.checked ? 'aria-checked="true"' : ''}>${it.svg || (it.icon ? icon(it.icon) : '')}<span>${esc(it.label)}</span>${it.keys ? `<kbd>${esc(it.keys)}</kbd>` : ''}${it.checked ? `<span class="menu-check">${icon('check')}</span>` : ''}</button>`).join('');
   document.body.appendChild(m);
   const r = anchor.getBoundingClientRect(), w = m.offsetWidth, h = m.offsetHeight;
   let x = align === 'right' ? r.right - w : r.left, y = r.bottom + 6;

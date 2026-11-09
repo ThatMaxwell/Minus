@@ -2,13 +2,13 @@
 // The big agent on the left is the one you are making; it reacts to every choice.
 import { state, agent, id, save, emit, go, post, providerState, updateAgent } from '../store.js';
 import { $, $$, esc, icon, sheet, toast, motion, IN } from '../ui.js';
-import { Mascot3D, EMOTIONS, SLOTS, snapshot } from '../../js/mascot3d.js';
+import { Mascot3D, IDLES, SLOTS, snapshot } from '../../js/mascot3d.js';
 import { act } from '../director.js';
 import { PALETTE, PROVIDERS, ROLES, PERMISSIONS, DEFAULT_PERMS, provider } from '../data.js';
 import { VOICES, voiceOf, cap as capV, hasKey, speak } from '../voice.js';
 
 const STEPS = ['Look', 'Basics', 'Brain', 'Computer', 'Permissions', 'Review'];
-const LOOK_TABS = [['color', 'Color'], ['face', 'Face'], ['head', 'Head'], ['extras', 'Face extras'], ['neck', 'Neck']];
+const LOOK_TABS = [['color', 'Color'], ['idle', 'Idle'], ['head', 'Head'], ['extras', 'Face extras'], ['neck', 'Neck']];
 const thumbs = new Map();
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -16,7 +16,7 @@ export function openCreate({ edit, step = 0 } = {}) {
   const src = edit ? agent(edit) : null;
   const firstConnected = PROVIDERS.find((p) => providerState(p.id)?.connected)?.id || 'claude';
   const d = src ? structuredClone(src) : {
-    name: '', role: '', instructions: '', color: pick(PALETTE).hex, emotion: 'neutral', outfit: {},
+    name: '', role: '', instructions: '', color: pick(PALETTE).hex, emotion: 'neutral', idle: 'calm', outfit: {},
     model: firstConnected, computer: 'new', perms: { ...DEFAULT_PERMS },
   };
   let cur = step, lookTab = 'color', m = null;
@@ -48,8 +48,10 @@ export function openCreate({ edit, step = 0 } = {}) {
   const el = s.el;
   let pane = $('.cr-pane', el);
 
-  m = new Mascot3D($('.cr-mx', el), { room: true, follow: true, color: d.color, emotion: d.emotion, outfit: d.outfit });
-  m.rest = d.emotion;
+  // its expressions are its own (it shows how it feels while it works); you choose how it idles
+  d.emotion = 'neutral';
+  m = new Mascot3D($('.cr-mx', el), { room: true, follow: true, color: d.color, emotion: 'neutral', outfit: d.outfit, idleStyle: d.idle || 'calm' });
+  m.rest = 'neutral';
   const tag = () => { $('.cr-name', el).textContent = d.name || 'Your agent'; $('.cr-role', el).textContent = d.role || 'No job yet'; };
   tag();
 
@@ -89,11 +91,18 @@ export function openCreate({ edit, step = 0 } = {}) {
           <p class="muted small">Flat colors, no gradients. Pick something that’s easy to tell apart from your other agents.</p>`;
         return;
       }
+      if (lookTab === 'idle') {
+        // live previews: each one idles its own way
+        body.innerHTML = `<div class="tiles idles">${Object.entries(IDLES).map(([k, v]) => `<button class="tile idle ${k === (d.idle || 'calm') ? 'on' : ''}" data-it="${k}"><canvas class="idle-mx" aria-hidden="true"></canvas><span>${esc(v.label)}</span><small>${esc(v.hint)}</small></button>`).join('')}</div>
+          <p class="muted small">How ${esc(d.name || 'it')} behaves when nothing is going on. Its expressions are its own: it shows how it feels while it works.</p>`;
+        $$('.idle-mx', body).forEach((c, i) => new Mascot3D(c, { shared: true, color: d.color, outfit: d.outfit, idleStyle: Object.keys(IDLES)[i], frame: 1.6 }));
+        return;
+      }
       const slot = lookTab === 'extras' ? 'face' : lookTab;
-      const items = lookTab === 'face' ? Object.keys(EMOTIONS) : ['none', ...SLOTS[slot]];
-      const selected = lookTab === 'face' ? d.emotion : d.outfit[slot] || 'none';
+      const items = ['none', ...SLOTS[slot]];
+      const selected = d.outfit[slot] || 'none';
       body.innerHTML = `<div class="tiles">${items.map((it) => `<button class="tile ${it === selected ? 'on' : ''}" data-it="${esc(it)}" data-tip="${esc(cap(it))}"><img alt="" data-k="${esc(it)}"><span>${esc(cap(it))}</span></button>`).join('')}</div>`;
-      fillThumbs(body, (it) => (lookTab === 'face' ? { color: d.color, emotion: it } : { color: d.color, outfit: it === 'none' ? {} : { [slot]: it } }));
+      fillThumbs(body, (it) => ({ color: d.color, outfit: it === 'none' ? {} : { [slot]: it } }));
     };
     draw();
     pane.addEventListener('click', (e) => {
@@ -102,16 +111,19 @@ export function openCreate({ edit, step = 0 } = {}) {
       const t = e.target.closest('[data-it]');
       if (t) {
         const it = t.dataset.it;
-        if (lookTab === 'face') { d.emotion = it; m.rest = it; m.setEmotion(it); m.blink(); }
+        if (lookTab === 'idle') {
+          d.idle = it; m.setIdleStyle(it);
+          ({ curious: () => m.gesture('tilt'), bouncy: () => m.hop(), dreamy: () => m.look(0.2, 0.8, { noBlink: true }), shy: () => m.gesture('peek'), busy: () => m.look(0, -0.5), calm: () => m.blink() })[it]?.();
+        }
         else { const slot = lookTab === 'extras' ? 'face' : lookTab; d.outfit[slot] = it === 'none' ? null : it; m.wear(slot, d.outfit[slot]); if (it !== 'none') act(m, 'admire', slot); else m.gesture('shake'); }
         $$('.tile', pane).forEach((x) => x.classList.toggle('on', x === t));
         $('.look-foot .muted', pane).textContent = `${Object.values(d.outfit).filter(Boolean).length} of 3 slots used`;
       }
       if (e.target.closest('[data-dice]')) {
         setColor(pick(PALETTE).hex, false);
-        d.emotion = pick(['neutral', 'happy', 'curious', 'excited', 'proud', 'wink', 'focused', 'determined']); m.rest = d.emotion;
+        d.idle = pick(Object.keys(IDLES)); m.setIdleStyle(d.idle);
         d.outfit = { head: Math.random() < 0.85 ? pick(SLOTS.head) : null, face: Math.random() < 0.35 ? pick(SLOTS.face) : null, neck: Math.random() < 0.45 ? pick(SLOTS.neck) : null };
-        m.setOutfit(d.outfit); m.setEmotion(d.emotion); act(m, 'spin'); draw();
+        m.setOutfit(d.outfit); act(m, 'spin'); draw();
         $('.look-foot .muted', pane).textContent = `${Object.values(d.outfit).filter(Boolean).length} of 3 slots used`;
       }
     });
@@ -262,7 +274,7 @@ export function openCreate({ edit, step = 0 } = {}) {
       state.computers.push(c); d.computer = c.id; emit('computers');
     }
     if (src) {
-      updateAgent(src.id, { name: d.name, role: d.role, instructions: d.instructions, color: d.color, emotion: d.emotion, outfit: d.outfit, model: d.model, computer: d.computer, perms: d.perms, voice: d.voice });
+      updateAgent(src.id, { name: d.name, role: d.role, instructions: d.instructions, color: d.color, emotion: 'neutral', idle: d.idle, outfit: d.outfit, model: d.model, computer: d.computer, perms: d.perms, voice: d.voice });
       emit('agents'); s.close(); toast(`${d.name} is updated`, { icon: 'sparkle' }); go('chat', { agent: src.id });
       return;
     }
