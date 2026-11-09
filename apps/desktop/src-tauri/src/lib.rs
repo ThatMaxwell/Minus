@@ -109,6 +109,41 @@ fn agent_forget(rt: tauri::State<'_, Agents>, agent: String) {
     rt.0.forget(&agent);
 }
 
+/* ───────── "show me once": watch the person do a job, then replay it as a skill ───────── */
+
+#[derive(Default)]
+struct Teach(hands::Teacher);
+
+/// Starts watching. The app window steps aside so you can do the job; the dock shows each
+/// step as it's recorded and has the Done button.
+#[tauri::command]
+fn teach_start(app: AppHandle, t: tauri::State<'_, Teach>) -> Result<(), String> {
+    t.0.start().map_err(|e| e.to_string())?;
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.minimize();
+    }
+    Ok(())
+}
+#[tauri::command]
+fn teach_steps(t: tauri::State<'_, Teach>) -> Vec<hands::TaughtStep> {
+    t.0.steps()
+}
+#[tauri::command]
+fn teach_stop(app: AppHandle, t: tauri::State<'_, Teach>) -> Vec<hands::TaughtStep> {
+    let steps = t.0.stop();
+    show_main(app);
+    steps
+}
+
+#[tauri::command]
+fn skill_run(app: AppHandle, rt: tauri::State<'_, Agents>, agent: String, skill: agent::skills::Skill, inputs: std::collections::HashMap<String, String>) -> Result<(), String> {
+    let id = agent.clone();
+    let emit: Arc<dyn Fn(agent::Event) + Send + Sync> = Arc::new(move |e| {
+        let _ = app.emit("agent-event", serde_json::json!({ "agent": id, "event": e }));
+    });
+    rt.0.run_skill(agent, skill, inputs, emit)
+}
+
 #[tauri::command]
 fn keys_list(app: AppHandle) -> Result<Vec<String>, String> {
     Ok(keys::list(&data_dir(&app)?))
@@ -264,7 +299,8 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .manage(HandsState::default())
-        .invoke_handler(tauri::generate_handler![hands_windows, hands_look, hands_act, dock_fit, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace])
+        .manage(Teach::default())
+        .invoke_handler(tauri::generate_handler![hands_windows, hands_look, hands_act, dock_fit, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run])
         .setup(move |app| {
             let handle = app.handle().clone();
             app.manage(Agents(agent::Runtime::new(app.path().app_data_dir()?.join("conversations"))));

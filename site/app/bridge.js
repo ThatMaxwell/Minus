@@ -5,6 +5,7 @@
 import { state, on, agent, post, updateAgent, go } from './store.js';
 import { respond, choose, resolve } from './brain.js';
 import { react } from './director.js';
+import * as teach from './teach.js';
 
 const ch = new BroadcastChannel('minus-dock');
 const tauri = window.__TAURI__;
@@ -34,7 +35,9 @@ function snapshot() {
       else if (last.choices && !last.chosen && Date.now() - (last.at || 0) < 30 * 60e3) asks.push({ agent: looks(a), mid: last.mid, kind: 'choice', title: last.text, options: last.choices.map((c) => [c, c]) });
     }
   }
-  return { working, asks };
+  const w = teach.watching(), wa = w && agent(w.agent);
+  const watch = wa ? { agent: looks(wa), count: w.steps.length, recent: w.steps.slice(-3).map((s) => teach.describe(s)) } : null;
+  return { working, asks, watch };
 }
 
 let t = 0;
@@ -43,11 +46,13 @@ const push = () => { clearTimeout(t); t = setTimeout(() => ch.postMessage({ type
 export function startBridge() {
   on('*', (ev, data) => {
     if (ev === 'message:update' && data?.msg?.kind === 'steps') pulses.set(data.agent, (pulses.get(data.agent) || 0) + 1);
-    if (['agent', 'message', 'message:update', 'approvals', 'agents', 'work'].includes(ev)) push();
+    if (['agent', 'message', 'message:update', 'approvals', 'agents', 'work', 'teach'].includes(ev)) push();
   });
   ch.onmessage = ({ data: d }) => {
     if (!d || typeof d !== 'object') return;
     if (d.type === 'hello') return push();
+    if (d.type === 'teach-done') return teach.finish(true);
+    if (d.type === 'teach-cancel') return teach.finish(false);
     const a = d.agent && agent(d.agent);
     if (d.type === 'open') {
       if (a) go('chat', { agent: a.id });

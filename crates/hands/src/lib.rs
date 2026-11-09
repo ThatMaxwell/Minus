@@ -18,6 +18,9 @@
 
 pub mod outline;
 mod platform;
+pub mod teach;
+
+pub use teach::{best_match, fill_in, inputs_of, parameterize, ElementRef, TaughtStep};
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -289,6 +292,50 @@ impl Hands {
     /// with what's needed to map its coordinates back to the screen.
     pub fn screenshot_for_model(&self, max_edge: u32) -> Result<Shot> {
         self.inner.screenshot(max_edge)
+    }
+}
+
+/// "Show me once": records what you do, by meaning, until stopped. One at a time.
+pub struct Teacher {
+    #[cfg(windows)]
+    rec: std::sync::Mutex<Option<platform::Recording>>,
+}
+impl Default for Teacher {
+    fn default() -> Self {
+        Self {
+            #[cfg(windows)]
+            rec: std::sync::Mutex::new(None),
+        }
+    }
+}
+impl Teacher {
+    pub fn start(&self) -> Result<()> {
+        #[cfg(windows)]
+        {
+            let mut g = self.rec.lock().unwrap();
+            if let Some(old) = g.take() {
+                old.stop();
+            }
+            *g = Some(platform::Recording::start()?);
+            return Ok(());
+        }
+        #[allow(unreachable_code)]
+        Err(HandsError::Unsupported(std::env::consts::OS))
+    }
+    /// What's been recorded so far (for the live list).
+    pub fn steps(&self) -> Vec<TaughtStep> {
+        #[cfg(windows)]
+        if let Some(r) = self.rec.lock().unwrap().as_ref() {
+            return r.steps();
+        }
+        Vec::new()
+    }
+    pub fn stop(&self) -> Vec<TaughtStep> {
+        #[cfg(windows)]
+        if let Some(r) = self.rec.lock().unwrap().take() {
+            return r.stop();
+        }
+        Vec::new()
     }
 }
 

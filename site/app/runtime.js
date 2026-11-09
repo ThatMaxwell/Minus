@@ -6,6 +6,7 @@ import { state, agent, computer, post, patchMessage, updateAgent, emit, provider
 import { react, feel } from './director.js';
 import { PERMISSIONS } from './data.js';
 import * as nb from './notebook.js';
+import { pendingRun } from './teach.js';
 
 const tauri = window.__TAURI__;
 export const desktop = !!tauri;
@@ -52,6 +53,7 @@ export async function run(aid, text) {
     id: a.id, name: a.name, role: a.role || '', instructions: a.instructions || '',
     computer: computer(a.computer)?.name || 'this computer',
     perms: PERMISSIONS.map((p) => [p.name, a.perms?.[p.id] || 'ask']),
+    skills: (a.skills || []).map((s) => ({ id: s.id, name: s.name, about: s.about || '', steps: s.steps })),
   };
   const brain = { provider: eng.provider, slot: a.model, model: ps.modelId || eng.model, effort: a.effort || 'medium', base_url: ps.baseUrl || null };
   try {
@@ -104,7 +106,8 @@ export function listen() {
     switch (e.kind) {
       case 'started': {
         const comp = computer(a.computer)?.name || 'this computer';
-        const m = post(aid, { from: 'agent', kind: 'steps', title: `Working on ${comp}`, live: true, total: null, done: 0, steps: [] });
+        const sk = pendingRun.get(aid); pendingRun.delete(aid);
+        const m = post(aid, { from: 'agent', kind: 'steps', title: sk ? `Doing “${sk.name}”` : `Working on ${comp}`, live: true, total: sk ? sk.steps.length : null, done: 0, steps: [], skill: !!sk });
         live.set(aid, { mid: m.mid, steps: [], usage: { input: 0, output: 0, cacheRead: 0 }, model: (providerState(a.model) || {}).modelId || ENGINES[a.model]?.model });
         updateAgent(aid, { status: 'working', statusText: 'Starting' });
         react(aid, 'working', document.querySelector('.pc-panel'));

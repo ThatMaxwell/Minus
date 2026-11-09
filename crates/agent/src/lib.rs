@@ -9,6 +9,7 @@
 
 mod anthropic;
 mod openai;
+pub mod skills;
 pub mod tools;
 
 use serde::{Deserialize, Serialize};
@@ -64,6 +65,9 @@ pub struct AgentSpec {
     /// Permission name -> "allow" | "ask" | "never"
     #[serde(default)]
     pub perms: Vec<(String, String)>,
+    /// Jobs the person showed it once, to replay with `use_skill`
+    #[serde(default)]
+    pub skills: Vec<skills::Skill>,
 }
 
 /// Which AI it thinks with. The key never leaves this computer except to that provider.
@@ -225,6 +229,33 @@ impl Runtime {
         });
     }
 
+    /// Plays a skill straight away, without the AI (the notebook's Run button). Shows up in the
+    /// agent's chat like any job: Started, its steps, then Done or Error.
+    pub fn run_skill(&self, agent: String, skill: skills::Skill, inputs: HashMap<String, String>, emit: Emit) -> Result<(), String> {
+        if self.is_running(&agent) {
+            return Err("This agent is busy. Stop it first, or wait.".into());
+        }
+        let need = skills::missing(&skill, &inputs);
+        if !need.is_empty() {
+            return Err(format!("Fill in: {}", need.join(", ")));
+        }
+        let hands = self.hands()?;
+        let flag = Arc::new(AtomicBool::new(false));
+        self.inner.running.lock().unwrap().insert(agent.clone(), flag.clone());
+        let me = self.clone();
+        tokio::task::spawn_blocking(move || {
+            emit(Event::Started);
+            let r = skills::replay(&hands, &skill, &inputs, tools::PACE_MS.load(Ordering::Relaxed), &flag, &|e| emit(e));
+            me.inner.running.lock().unwrap().remove(&agent);
+            match (&r.error, flag.load(Ordering::SeqCst)) {
+                (_, true) => emit(Event::Stopped),
+                (None, _) => emit(Event::Done { text: format!("Done: “{}”, all {} steps.", skill.name, r.total) }),
+                (Some(e), _) => emit(Event::Error { message: format!("Step {} of {} didn't work: {e}. The steps before it are done.", r.done + 1, r.total) }),
+            }
+        });
+        Ok(())
+    }
+
     fn convo(&self, agent: &str, fam: &str) -> Arc<tokio::sync::Mutex<Convo>> {
         let mut g = self.inner.convos.lock().unwrap();
         if let Some(c) = g.get(agent) {
@@ -260,6 +291,11 @@ impl Runtime {
         let mut c = convo.lock().await;
         let system = system_prompt(&spec);
         let date = today();
+        let mut text = text;
+        if !spec.skills.is_empty() {
+            text.push_str("\n\nSkills the person showed you (run them with `use_skill`):\n");
+            text.push_str(&spec.skills.iter().map(|s| s.summary()).collect::<Vec<_>>().join("\n"));
+        }
         let user = json!({"role": "user", "content": [{"type": "text", "text": format!("{text}\n\n(Today is {date}.)")}]});
         c.messages.push(if fam == "anthropic" { user } else { json!({"role": "user", "content": format!("{text}\n\n(Today is {date}.)")}) });
         let mut compat = anthropic::Compat::default();
@@ -314,7 +350,7 @@ impl Runtime {
                 } else if stop.load(Ordering::SeqCst) {
                     CallResult { id: call.id.clone(), content: json!("Stopped by the person."), is_error: true, toolset: call.toolset.clone() }
                 } else {
-                    self.call(&spec, call, &hands, &c.screen, &emit).await
+                    self.call(&spec, call, &hands, &c.screen, &emit, &stop).await
                 };
                 if r.is_error && call.toolset.is_some() {
                     halted = true;
@@ -333,7 +369,7 @@ impl Runtime {
         rx.await.unwrap_or_else(|_| "__stopped__".into())
     }
 
-    async fn call(&self, spec: &AgentSpec, call: &Call, hands: &Result<hands::Hands, String>, screen: &Arc<Mutex<Screen>>, emit: &Emit) -> CallResult {
+    async fn call(&self, spec: &AgentSpec, call: &Call, hands: &Result<hands::Hands, String>, screen: &Arc<Mutex<Screen>>, emit: &Emit, stop: &Arc<AtomicBool>) -> CallResult {
         let ok = |content: Value| CallResult { id: call.id.clone(), content, is_error: false, toolset: call.toolset.clone() };
         let err = |m: String| CallResult { id: call.id.clone(), content: json!(m), is_error: true, toolset: call.toolset.clone() };
         let s = |k: &str| call.input.get(k).and_then(|v| v.as_str()).map(|v| v.to_string());
@@ -364,6 +400,39 @@ impl Runtime {
                 if t.trim().is_empty() { return err("nothing to remember".into()); }
                 emit(Event::Remember { text: t });
                 ok(json!("saved in your notebook; you'll see it with your next jobs"))
+            }
+            "use_skill" => {
+                let want = s("skill").unwrap_or_default();
+                let norm = |x: &str| x.trim().trim_matches(['“', '”', '"']).to_lowercase();
+                let Some(skill) = spec.skills.iter().find(|k| norm(&k.name) == norm(&want)).cloned() else {
+                    let have = spec.skills.iter().map(|k| format!("“{}”", k.name)).collect::<Vec<_>>().join(", ");
+                    return err(if have.is_empty() { "You haven't been shown any skills yet.".into() } else { format!("There's no skill called “{want}”. Yours: {have}.") });
+                };
+                let inputs: HashMap<String, String> = call.input.get("inputs").and_then(|v| v.as_object()).map(|o| o.iter().map(|(k, v)| (k.clone(), v.as_str().map(String::from).unwrap_or_else(|| v.to_string()))).collect()).unwrap_or_default();
+                let need = skills::missing(&skill, &inputs);
+                if !need.is_empty() {
+                    return err(format!("“{}” needs: {}. Find them, or ask the person.", skill.name, need.join(", ")));
+                }
+                let h = match hands {
+                    Ok(h) => h.clone(),
+                    Err(e) => return err(format!("This computer can't be controlled yet: {e}")),
+                };
+                let (screen, emit2, stop) = (screen.clone(), emit.clone(), stop.clone());
+                let res = tokio::task::spawn_blocking(move || {
+                    let r = skills::replay(&h, &skill, &inputs, tools::PACE_MS.load(Ordering::Relaxed), &stop, &|e| emit2(e));
+                    let mut text = r.report(&skill);
+                    if let Some(last) = r.last.clone() {
+                        text.push_str("\n\nThe window now:\n");
+                        text.push_str(&screen.lock().unwrap().seen(last));
+                    }
+                    (text, r.error.is_some())
+                })
+                .await;
+                match res {
+                    Ok((t, false)) => ok(json!(t)),
+                    Ok((t, true)) => err(t),
+                    Err(e) => err(e.to_string()),
+                }
             }
             name => {
                 let h = match hands {
@@ -527,7 +596,7 @@ mod tests {
     use super::*;
     #[test]
     fn prompt_has_permissions() {
-        let a = AgentSpec { id: "s".into(), name: "Scout".into(), role: "Research".into(), instructions: "Find leads".into(), computer: "Cloud computer 1".into(), perms: vec![("Browse the web".into(), "allow".into()), ("Send email".into(), "ask".into()), ("Spend money".into(), "never".into())] };
+        let a = AgentSpec { id: "s".into(), name: "Scout".into(), role: "Research".into(), instructions: "Find leads".into(), computer: "Cloud computer 1".into(), skills: vec![], perms: vec![("Browse the web".into(), "allow".into()), ("Send email".into(), "ask".into()), ("Spend money".into(), "never".into())] };
         let p = system_prompt(&a);
         assert!(p.contains("without asking: browse the web"));
         assert!(p.contains("and: send email"));

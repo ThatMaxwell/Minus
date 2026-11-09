@@ -10,6 +10,7 @@ import { Listener, transcribe, hasKey, heardYou, speak, stopSpeaking, speaking, 
 import { keySheet } from './pages.js';
 import * as rt from '../runtime.js';
 import * as nb from '../notebook.js';
+import * as teach from '../teach.js';
 
 let off = [];
 // stop listening to the store when another page takes over (the router calls this)
@@ -30,6 +31,7 @@ export function chat(main) {
           <button class="chip" data-act="model" data-tip="Which AI ${esc(a.name)} thinks with">${prov.icon}<span>${esc(prov.name)}</span>${icon('chevron', 'rot')}</button>
           <button class="chip" data-act="computer" data-tip="Which computer ${esc(a.name)} works on">${icon(comp?.kind === 'local' ? 'laptop' : 'cloud')}<span>${esc(comp?.name || 'No computer')}</span>${icon('chevron', 'rot')}</button>
           <span class="sep"></span>
+          <button class="icon-btn" data-act="teach" data-tip="Show me once: do a job while ${esc(a.name)} watches, and it learns how">${icon('showme')}</button>
           <button class="icon-btn nb-btn" data-act="notebook" data-tip="${esc(a.name)}’s notebook: what it has learned">${icon('book')}<span class="nb-count" ${nb.count(a) ? '' : 'hidden'}>${nb.count(a)}</span></button>
           <button class="icon-btn" data-act="look" data-tip="Change how ${esc(a.name)} looks">${icon('sparkle')}</button>
           <button class="icon-btn" data-act="pause" data-tip="${a.status === 'paused' ? 'Resume' : 'Pause'} ${esc(a.name)}">${icon(a.status === 'paused' ? 'play' : 'pause')}</button>
@@ -106,6 +108,9 @@ export function chat(main) {
     if (b) { const card = b.closest('[data-mid]'); return resolve(a.id, card.dataset.mid, b.dataset.ap); }
     const c = e.target.closest('[data-choice]');
     if (c) { const card = c.closest('[data-mid]'); return choose(a.id, card.dataset.mid, c.dataset.choice); }
+    const r = e.target.closest('[data-run-skill]');
+    if (r) return teach.run(a.id, r.dataset.runSkill);
+    if (e.target.closest('[data-open-skills]')) return nb.open(main, a.id, 'skills');
   });
   thread.addEventListener('pointerover', (e) => { const b = e.target.closest('[data-ap="approved"]'); if (b) react(a.id, 'look', b); });
 
@@ -235,7 +240,9 @@ export function chat(main) {
     }
     if (act === 'computer') return menu(b, state.computers.map((c) => ({ label: c.name, checked: c.id === a.computer, icon: c.kind === 'local' ? 'laptop' : 'cloud', run: () => { updateAgent(a.id, { computer: c.id }); toast(`${a.name} moved to ${c.name}`); react(a.id, c.kind === 'local' ? 'peek' : 'yes'); chat(main); } })));
     if (act === 'look') return openCreate({ edit: a.id, step: 0 });
+    if (act === 'teach') return teach.start(a.id);
     if (act === 'pause') {
+      if (teach.busy.has(a.id)) { teach.stop(a.id); toast(`${a.name} will stop after this step`, { icon: 'pause' }); return; }
       if (rt.running(a.id)) { rt.stop(a.id); toast(`${a.name} will stop after this step`, { icon: 'pause' }); return; }
       const paused = a.status === 'paused';
       updateAgent(a.id, paused ? { status: 'idle', statusText: 'Ready' } : { status: 'paused', statusText: 'Paused' });
@@ -274,7 +281,15 @@ export function msgHTML(a, m, prev, cont) {
   const head = sameRun ? '<span class="gutter"></span>' : face(a, 26);
   const name = sameRun ? '' : `<b class="who">${esc(a.name)} <time>${m.at ? timeAgo(m.at) : ''}</time></b>`;
   let body = '';
-  if (m.kind === 'steps') {
+  if (m.kind === 'skill') {
+    const sk = (a.skills || []).find((s) => s.id === m.skill);
+    body = `<div class="card skill-card">
+      <div class="card-h">${icon('showme')}<span>Learned a new skill</span></div>
+      <p class="sk-name">${esc(m.name)}</p>
+      <p class="sk-meta">${m.count} step${m.count === 1 ? '' : 's'}${m.inputs?.length ? ` · asks for ${m.inputs.map((i) => `<span class="sk-chip">${icon('bolt')}${esc(i.replace(/_/g, ' '))}</span>`).join(' ')}` : ''}</p>
+      <div class="ask-btns"><button class="btn btn-quiet btn-sm" data-open-skills>See all skills</button>${sk ? `<button class="btn btn-primary btn-sm" data-run-skill="${esc(sk.id)}">${icon('play')}Run it</button>` : ''}</div>
+    </div>`;
+  } else if (m.kind === 'steps') {
     const pct = m.total ? Math.round((m.done / m.total) * 100) : 0;
     const count = m.total ? `${m.done || 0}/${m.total}` : `${m.done || 0} step${m.done === 1 ? '' : 's'}`;
     const price = m.cost != null ? `<span class="st-cost" data-tip="What this job cost on your own API key so far">${m.cost < 0.01 ? '<$0.01' : '$' + m.cost.toFixed(2)}</span>` : '';

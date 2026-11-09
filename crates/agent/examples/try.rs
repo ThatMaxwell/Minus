@@ -12,7 +12,7 @@ async fn main() {
     rt.forget("try");
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
     let emit: Arc<dyn Fn(Event) + Send + Sync> = Arc::new(move |e| { let _ = tx.send(e); });
-    let spec = AgentSpec { id: "try".into(), name: "Tester".into(), role: "Testing Minus".into(), instructions: String::new(), computer: "this computer".into(), perms: vec![("Send email and messages".into(), "ask".into())] };
+    let spec = AgentSpec { id: "try".into(), name: "Tester".into(), role: "Testing Minus".into(), instructions: String::new(), computer: "this computer".into(), perms: vec![("Send email and messages".into(), "ask".into())], skills: vec![] };
     let brain = Brain { provider, model, key: std::env::var("MINUS_KEY").unwrap_or_default(), effort: Some("low".into()), base_url: a.get(3).cloned() };
     rt.start(spec, brain, job, emit);
     while let Some(e) = rx.recv().await {

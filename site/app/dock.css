@@ -84,3 +84,19 @@ button:focus-visible, input:focus-visible { outline: 2px solid rgba(255,255,255,
 .later:hover { color: var(--fg); }
 .sent { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 16px 0 6px; white-space: nowrap; }
 .sent b { font-weight: 600; } .sent span { color: var(--fg-2); }
+
+/* watch: you're showing an agent how to do something ("Show me once") */
+.c-watch { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 14px; white-space: nowrap; }
+.rec { position: relative; width: 10px; height: 10px; flex: none; }
+.rec i, .rec::after { position: absolute; inset: 0; border-radius: 50%; background: #ff4d4f; content: ""; }
+.rec::after { animation: rec 1.6s cubic-bezier(.22,1,.36,1) infinite; }
+@keyframes rec { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(2.8); opacity: 0; } }
+.w-t { display: flex; flex-direction: column; min-width: 0; max-width: 260px; }
+.w-t b { font-weight: 600; font-size: 13px; }
+.w-t span { color: var(--fg-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.w-n { min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; background: rgba(255,255,255,.1); font: 600 11.5px/22px var(--sans); text-align: center; color: var(--fg); }
+.w-x { width: 30px; height: 30px; border-radius: 15px; display: grid; place-items: center; color: var(--fg-3); margin-left: 2px; transition: background .15s, color .15s; }
+.w-x:hover { background: rgba(255,255,255,.08); color: var(--fg); }
+.w-x svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.c-watch .btn { height: 34px; padding: 0 16px; }
+.island.watching { box-shadow: inset 0 0 0 1px rgba(255,77,79,.32), inset 0 1px 0 rgba(255,255,255,.06), 0 10px 30px -8px rgba(0,0,0,.7), 0 0 0 4px rgba(255,77,79,.07); }

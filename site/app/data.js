@@ -57,11 +57,20 @@ export const COMPUTERS = [
 
 const now = Date.now(), min = 60e3, hr = 3600e3;
 const note = (text, daysAgo, by = 'agent') => ({ id: 'note-' + text.length + '-' + daysAgo, text, at: Date.now() - daysAgo * 86400000, by });
+// A skill: a job someone showed the agent once (see teach.js). Steps are found again by meaning.
+const crm = (role, name, x, y, w = 300, h = 34, path = ['group:New lead']) => ({ role, name, app: 'chrome.exe', window: 'New lead · Acme CRM - Google Chrome', path, at: { x, y, w, h } });
+const LEAD_SKILL = { id: 'skill-lead', name: 'Add a lead to the CRM', about: '', at: Date.now() - 2 * 86400000, steps: [
+  { kind: 'fill', target: crm('edit', 'Name', 20, 92), value: '{{name}}' },
+  { kind: 'fill', target: crm('edit', 'Company', 20, 150), value: '{{company}}' },
+  { kind: 'fill', target: crm('edit', 'Email', 20, 208), value: '{{email}}' },
+  { kind: 'click', target: crm('button', 'Warm', 90, 256, 60, 28, ['group:New lead', 'group:Stage']), button: 'left', double: false },
+  { kind: 'click', target: crm('button', 'Save lead', 20, 300, 300, 38), button: 'left', double: false },
+] };
 
 export const SEED_AGENTS = [
   { id: 'scout', name: 'Scout', role: 'Research', color: COLORS.mint, emotion: 'happy', idle: 'bouncy', outfit: { head: 'cap' }, model: 'claude', computer: 'cloud-1',
     instructions: 'Find and qualify leads. Keep the CRM tidy.', status: 'working', statusText: 'Adding webinar leads', perms: { ...DEFAULT_PERMS },
-    notebook: [note('Skip anyone whose email ends in .edu: they’re students, not buyers.', 1), note('The CRM is crm.acme.example. Duplicates are checked by email, not by name.', 3), note('Max likes a one-line summary at the end, not a report.', 6, 'you')] },
+    notebook: [note('Skip anyone whose email ends in .edu: they’re students, not buyers.', 1), note('The CRM is crm.acme.example. Duplicates are checked by email, not by name.', 3), note('Max likes a one-line summary at the end, not a report.', 6, 'you')], skills: [LEAD_SKILL] },
   { id: 'inbox', name: 'Inbox', role: 'Email', color: COLORS.violet, emotion: 'neutral', idle: 'calm', outfit: { head: 'headset' }, model: 'chatgpt', computer: 'cloud-2',
     instructions: 'Keep my inbox at zero. Draft replies in my voice. Ask before sending.', status: 'waiting', statusText: 'Waiting for your OK', unread: 1, perms: { ...DEFAULT_PERMS },
     notebook: [note('Sign emails “Max”, never “Best regards”.', 2, 'you'), note('Newsletters get archived, never answered.', 4), note('Anything from the bank goes to Ledger.', 9)] },
@@ -124,5 +133,6 @@ export const STATUS = {
   waiting: { label: 'Needs you', tone: 'amber' },
   idle: { label: 'Idle', tone: 'dim' },
   done: { label: 'Done', tone: 'sky' },
+  watching: { label: 'Watching you', tone: 'red' },
   off: { label: 'Off', tone: 'dim' },
 };

@@ -3,6 +3,8 @@
 
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+pub(crate) use windows::rec::Recording;
 
 use crate::{ActResult, Action, HandsError, Result, Shot, Snapshot, SnapshotOptions, Target, WindowInfo};
 use std::sync::mpsc::{channel, Sender};

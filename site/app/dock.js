@@ -3,6 +3,7 @@
 //   agents working     -> a pill with their live faces, what the first one is doing, progress
 //   hover or click     -> opens: everyone at work, with pause and open
 //   someone needs you  -> opens by itself with the question: buttons, or a box to type in
+//   showing an agent   -> a little recorder: it's watching, each step as you go, and Done
 // It lives in its own always-on-top window in the desktop app and floats over the page in
 // the web preview. Its window is always exactly as big as the island, so it never blocks
 // clicks on whatever is underneath.
@@ -16,7 +17,7 @@ const island = document.getElementById('island'), stash = document.getElementByI
 const SHADOW = { x: 18, b: 24 }; // window room for the island's shadow
 const SPRING = { type: 'spring', stiffness: 380, damping: 34, mass: 0.9 };
 
-let S = { working: [], asks: [] };
+let S = { working: [], asks: [], watch: null };
 let mode = '', key = '', size = { w: 40, h: 40 };
 let hover = false, pinned = false, hoverT = 0, leaveT = 0;
 const later = new Set(); // asks you put off with "Later"
@@ -29,6 +30,7 @@ const ICON = {
   pause: '<svg viewBox="0 0 20 20"><path d="M7.5 5v10M12.5 5v10"/></svg>',
   open: '<svg viewBox="0 0 20 20"><path d="M8 5.5h6.5V12M14.5 5.5L6 14"/></svg>',
   send: '<svg viewBox="0 0 20 20"><path d="M10 15.5v-11M5.5 9l4.5-4.5L14.5 9"/></svg>',
+  x: '<svg viewBox="0 0 20 20"><path d="M6 6l8 8M14 6l-8 8"/></svg>',
 };
 
 /* ───────── live faces: one mascot per agent, moved between layouts, never restarted ───────── */
@@ -48,7 +50,7 @@ const MINUS = { id: 'minus', name: 'Minus', color: COLORS.cloud, outfit: {} };
 const slot = (a, s) => `<span class="slot" data-face="${esc(a.id)}" style="--s:${s}"></span>`;
 function placeFaces(root) {
   root.querySelectorAll('.slot[data-face]').forEach((el) => {
-    const a = S.working.find((x) => x.id === el.dataset.face) || S.asks.map((q) => q.agent).find((x) => x.id === el.dataset.face) || (el.dataset.face === 'minus' ? MINUS : null);
+    const a = S.working.find((x) => x.id === el.dataset.face) || S.asks.map((q) => q.agent).find((x) => x.id === el.dataset.face) || (S.watch?.agent.id === el.dataset.face ? S.watch.agent : null) || (el.dataset.face === 'minus' ? MINUS : null);
     if (a) el.appendChild(face(a).wrap);
   });
 }
@@ -60,6 +62,7 @@ function mood(id, emotion) {
 /* ───────── what to show ───────── */
 const activeAsk = () => S.asks.find((q) => !later.has(q.mid));
 function pickMode() {
+  if (S.watch) return 'watch';
   if (sentNote) return 'sent';
   if (activeAsk()) return 'ask';
   if (S.working.length || S.asks.length) return hover || pinned ? 'open' : 'pill';
@@ -73,6 +76,14 @@ function ring(done, total) {
 const step = (w) => (w.total ? `${w.done}/${w.total}` : '');
 
 function html(m) {
+  if (m === 'watch') {
+    const w = S.watch, last = w.recent[w.recent.length - 1];
+    return `<div class="c-watch"><span class="rec" aria-hidden="true"><i></i></span>${slot(w.agent, 0.72)}
+      <div class="w-t"><b>${esc(w.agent.name)} is watching</b><span data-k="wlast">${esc(last || 'Do the job once, the way you always do')}</span></div>
+      <span class="w-n" data-k="wn" ${w.count ? '' : 'hidden'}>${w.count}</span>
+      <button class="w-x" data-act="teach-cancel" aria-label="Stop without saving">${ICON.x}</button>
+      <button class="btn solid" data-act="teach-done">Done</button></div>`;
+  }
   if (m === 'dot') return `<div class="c-dot" data-act="open">${slot(MINUS, 0.6)}</div>`;
   if (m === 'hi') return `<div class="c-hi" data-act="open">${slot(MINUS, 0.6)}<b>Minus</b><span>All quiet</span></div>`;
   if (m === 'sent') return `<div class="sent">${slot(sentNote.agent, 0.84)}<div><b>Sent to ${esc(sentNote.agent.name)}</b><br><span>${esc(sentNote.text)}</span></div></div>`;
@@ -105,7 +116,7 @@ function html(m) {
   return '';
 }
 
-const layoutKey = (m) => m + '|' + (m === 'ask' ? activeAsk()?.mid : m === 'sent' ? sentNote.text : m === 'open' ? S.working.map((w) => w.id).join(',') + '/' + S.asks.map((q) => q.mid).join(',') : m === 'pill' ? S.working.map((w) => w.id).join(',') + '/' + S.asks.length + '/' + (S.working.length === 1 ? S.working[0].status : '') : '');
+const layoutKey = (m) => m + '|' + (m === 'watch' ? S.watch.agent.id : m === 'ask' ? activeAsk()?.mid : m === 'sent' ? sentNote.text : m === 'open' ? S.working.map((w) => w.id).join(',') + '/' + S.asks.map((q) => q.mid).join(',') : m === 'pill' ? S.working.map((w) => w.id).join(',') + '/' + S.asks.length + '/' + (S.working.length === 1 ? S.working[0].status : '') : '');
 
 /* ───────── fitting the window to the island ───────── */
 function fit(w, h) {
@@ -128,10 +139,11 @@ function render(force = false) {
   placeFaces(next);
   const w = next.offsetWidth, h = next.offsetHeight;
   island.classList.toggle('asking', m === 'ask');
+  island.classList.toggle('watching', m === 'watch');
   // grow the window first, shrink it after
   fit(Math.max(w, size.w), Math.max(h, size.h));
   anim?.stop?.();
-  const radius = m === 'dot' || m === 'hi' || m === 'pill' ? 20 : m === 'sent' ? 26 : 28;
+  const radius = m === 'dot' || m === 'hi' || m === 'pill' ? 20 : m === 'sent' || m === 'watch' ? 26 : 28;
   anim = animate(island, { width: w, height: h, borderRadius: radius }, SPRING);
   anim.then(() => { if (mode === m) fit(w, h); });
   size = { w, h };
@@ -162,6 +174,18 @@ function patch() {
       const st = row.querySelector('[data-k="status"]'); if (st) st.innerHTML = `${esc(w.status)}${step(w) ? ` · ${step(w)}` : ''}`;
     }
   }
+  if (mode === 'watch' && S.watch) {
+    const n = current.querySelector('[data-k="wn"]'), l = current.querySelector('[data-k="wlast"]'), last = S.watch.recent[S.watch.recent.length - 1];
+    if (n && String(S.watch.count) !== n.textContent) {
+      n.hidden = !S.watch.count; n.textContent = S.watch.count;
+      animate(n, { scale: [1.5, 1] }, { type: 'spring', stiffness: 500, damping: 18 });
+      if (l && last) { l.textContent = last; animate(l, { opacity: [0, 1], y: [5, 0] }, { duration: 0.3 }); }
+      const f = faces.get(S.watch.agent.id); if (f) { f.m.gesture('nod'); }
+      // keep the island exactly as wide as what it says
+      const c = current.firstElementChild, w = c.offsetWidth, h = c.offsetHeight;
+      if (w !== size.w) { fit(Math.max(w, size.w), h); animate(island, { width: w }, SPRING).then(() => fit(w, h)); size = { w, h }; }
+    }
+  }
   const r = current.querySelector('.ring .fg');
   if (r) {
     const t = S.working.filter((x) => x.total).reduce((s, x) => [s[0] + x.done, s[1] + x.total], [0, 0]);
@@ -178,6 +202,7 @@ function moods() {
     mood(w.id, w.feel || 'focused');
   }
   for (const q of S.asks) mood(q.agent.id, q.kind === 'approval' ? 'worried' : 'curious');
+  if (S.watch) mood(S.watch.agent.id, 'listening');
 }
 
 /* ───────── input ───────── */
@@ -191,6 +216,11 @@ island.addEventListener('click', (e) => {
   const act = b.dataset.act;
   const q = activeAsk();
   if (act === 'pin') { pinned = true; render(); }
+  if (act === 'teach-done' || act === 'teach-cancel') {
+    const f = S.watch && faces.get(S.watch.agent.id);
+    if (f) { if (act === 'teach-done') { f.m.setEmotion('happy'); f.m.hop(); } else f.m.setEmotion('neutral'); }
+    ch.postMessage({ type: act });
+  }
   if (act === 'collapse') { pinned = false; hover = false; render(); }
   if (act === 'open') { ch.postMessage({ type: 'open', agent: b.dataset.agent || S.working[0]?.id || null }); }
   if (act === 'pause') { ch.postMessage({ type: 'pause', agent: b.dataset.agent }); faces.get(b.dataset.agent)?.m.setEmotion('sleepy'); }
@@ -233,7 +263,7 @@ ch.onmessage = ({ data }) => {
   for (const id of [...later]) if (!now.has(id)) later.delete(id);
   // agents that stopped working leave the stash
   for (const [id, f] of faces) {
-    if (id !== 'minus' && !S.working.find((w) => w.id === id) && !S.asks.find((q) => q.agent.id === id) && f.wrap.parentElement === stash) { f.m.destroy(); f.wrap.remove(); faces.delete(id); }
+    if (id !== 'minus' && !S.working.find((w) => w.id === id) && !S.asks.find((q) => q.agent.id === id) && S.watch?.agent.id !== id && f.wrap.parentElement === stash) { f.m.destroy(); f.wrap.remove(); faces.delete(id); }
   }
   render();
 };

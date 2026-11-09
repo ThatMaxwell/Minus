@@ -5,6 +5,7 @@ import { state, agent, computer, post, patchMessage, updateAgent, emit, id, save
 import { react } from './director.js';
 import * as rt from './runtime.js';
 import * as nb from './notebook.js';
+import * as teach from './teach.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const busy = new Set();
@@ -70,6 +71,9 @@ export async function respond(aid, text) {
     react(aid, 'hello');
     return;
   }
+  // a job it was shown once: it does it that way, with this time's details
+  const sk = teach.match(a, t);
+  if (sk && (!teach.inputsOf(sk.steps).length || Object.keys(detailsFor(sk, t)).length)) return useSkill(aid, sk, t, prevStatus);
   if (RISKY.test(t)) return ask(aid, t);
   if (TASK.test(t)) return work(aid, t);
   if (/\?$/.test(t)) {
@@ -79,6 +83,27 @@ export async function respond(aid, text) {
   }
   post(aid, { from: 'agent', text: 'Got it. Should I start now, or save it as a routine that runs on its own?', choices: ['Start now', 'Save as routine'], about: t });
   updateAgent(aid, { status: 'idle', statusText: 'Ready' }); react(aid, 'reply');
+}
+
+// Picks this time's details out of the request: "add Leo Park from Initech, leo@initech.example"
+function detailsFor(sk, text) {
+  const got = {};
+  for (const k of teach.inputsOf(sk.steps)) {
+    let v = null;
+    if (/mail/.test(k)) v = text.match(/[\w.+-]+@[\w-]+\.[\w.]+/)?.[0];
+    else if (/company|org|business/.test(k)) v = text.match(/\b(?:from|at|of)\s+([A-Z][\w&.-]*(?:\s[A-Z][\w&.-]*)?)/)?.[1];
+    else if (/name/.test(k)) v = text.match(/\b(?:[Aa]dd|[Ff]or|[Nn]ew lead)\s+([A-Z][\w'-]*(?:\s[A-Z][\w'-]*)?)/)?.[1];
+    if (v) got[k] = v.replace(/[.,]$/, '');
+  }
+  return got;
+}
+async function useSkill(aid, sk, text, prevStatus) {
+  const got = detailsFor(sk, text);
+  post(aid, { from: 'agent', text: `I know this one. You showed me how to ${sk.name.charAt(0).toLowerCase() + sk.name.slice(1)}, so I’ll do it the same way${Object.keys(got).length ? ` with ${Object.values(got).join(', ')}` : ''}.` });
+  updateAgent(aid, { status: prevStatus === 'working' ? 'working' : 'idle', statusText: 'Ready' });
+  react(aid, 'yes');
+  await wait(700);
+  teach.run(aid, sk.id, got);
 }
 
 export async function choose(aid, mid, choice) {

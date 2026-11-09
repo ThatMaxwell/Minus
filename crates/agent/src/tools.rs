@@ -64,6 +64,14 @@ pub fn custom_tools() -> Vec<Value> {
             "input_schema": {"type": "object", "properties": {"note": {"type": "string"}}, "required": ["note"]}
         }),
         json!({
+            "name": "use_skill",
+            "description": "Run a skill the person taught you by doing the job once while you watched (\"Show me once\"). The job text lists your skills. A skill is much faster and more reliable than doing the same steps yourself, so use one whenever it fits. Give a value for every input it lists. If a step can't be done, the steps before it are done and you get the screen as it is; finish the rest yourself.",
+            "input_schema": {"type": "object", "properties": {
+                "skill": {"type": "string", "description": "The skill's name, as listed"},
+                "inputs": {"type": "object", "additionalProperties": {"type": "string"}, "description": "A value for each of the skill's inputs, e.g. {\"name\": \"Dana Okafor\"}"}
+            }, "required": ["skill"]}
+        }),
+        json!({
             "name": "message_user",
             "description": "Send the person a message while you keep working, for something they need now or verbatim (a code, a link, a number they asked for). Not for routine progress.",
             "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
@@ -128,6 +136,10 @@ impl Screen {
         self.current = Some(h);
         self.looks.insert(h, s);
         &self.looks[&h]
+    }
+    /// Keeps a snapshot taken elsewhere (after a skill ran) and returns it as an outline.
+    pub(crate) fn seen(&mut self, s: Snapshot) -> String {
+        render(self.remember(s))
     }
     fn target(&self, w: Option<&str>) -> Target {
         target_of(w).or(self.current.map(Target::Handle)).unwrap_or(Target::Focused)
@@ -243,7 +255,7 @@ impl Screen {
 }
 
 /// Where an action lands on screen, for the ghost cursor.
-fn point_of(a: &Action, s: &Snapshot) -> Option<Event> {
+pub(crate) fn point_of(a: &Action, s: &Snapshot) -> Option<Event> {
     let (id, action, text) = match a {
         Action::Click { id, .. } => (*id, "click", None),
         Action::Fill { id, text } => (*id, "type", Some(text.clone())),

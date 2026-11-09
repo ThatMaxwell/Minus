@@ -716,3 +716,235 @@ fn screenshot_scaled(max_edge: u32) -> Result<Shot> {
         Ok(Shot { png, width, height, scale, origin_x: x, origin_y: y })
     }
 }
+
+/* ───────── "Show me once": watching what you do ───────── */
+pub(crate) mod rec {
+    //! Two threads: one holds low-level mouse and keyboard hooks (they need a message loop and
+    //! must return at once), the other asks UI Automation what each click landed on and
+    //! watches the focused field's value. Input that agents generate (injected) is skipped.
+    use super::{exe_name, role_of, to_rect};
+    use crate::teach::{ElementRef, TaughtStep};
+    use crate::{HandsError, MouseButton, Result};
+    use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
+    use std::sync::{Arc, Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+    use windows::Win32::Foundation::{LPARAM, LRESULT, POINT, WPARAM};
+    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
+    use windows::Win32::System::Threading::GetCurrentThreadId;
+    use windows::Win32::UI::Accessibility::*;
+    use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+    use windows::Win32::UI::WindowsAndMessaging::*;
+
+    enum Raw {
+        Down { x: i32, y: i32, button: MouseButton },
+        Key { vk: u32, ctrl: bool, alt: bool, shift: bool, win: bool },
+    }
+    static RAW: OnceLock<Mutex<Option<Sender<Raw>>>> = OnceLock::new();
+    fn send(r: Raw) {
+        if let Some(tx) = RAW.get().and_then(|m| m.lock().ok()).and_then(|g| g.clone()) {
+            let _ = tx.send(r);
+        }
+    }
+    const INJECTED_MOUSE: u32 = 0x1;
+    const INJECTED_KEY: u32 = 0x10;
+
+    unsafe extern "system" fn mouse_proc(code: i32, w: WPARAM, l: LPARAM) -> LRESULT {
+        if code >= 0 {
+            let m = unsafe { &*(l.0 as *const MSLLHOOKSTRUCT) };
+            if m.flags & INJECTED_MOUSE == 0 {
+                let b = match w.0 as u32 {
+                    WM_LBUTTONDOWN => Some(MouseButton::Left),
+                    WM_RBUTTONDOWN => Some(MouseButton::Right),
+                    _ => None,
+                };
+                if let Some(button) = b {
+                    send(Raw::Down { x: m.pt.x, y: m.pt.y, button });
+                }
+            }
+        }
+        unsafe { CallNextHookEx(None, code, w, l) }
+    }
+    unsafe extern "system" fn key_proc(code: i32, w: WPARAM, l: LPARAM) -> LRESULT {
+        if code >= 0 && (w.0 as u32 == WM_KEYDOWN || w.0 as u32 == WM_SYSKEYDOWN) {
+            let k = unsafe { &*(l.0 as *const KBDLLHOOKSTRUCT) };
+            if k.flags.0 & INJECTED_KEY == 0 {
+                let down = |vk: i32| unsafe { GetAsyncKeyState(vk) } as u16 & 0x8000 != 0;
+                send(Raw::Key { vk: k.vkCode, ctrl: down(0x11), alt: down(0x12), shift: down(0x10), win: down(0x5B) || down(0x5C) });
+            }
+        }
+        unsafe { CallNextHookEx(None, code, w, l) }
+    }
+
+    fn keyname(vk: u32) -> Option<String> {
+        Some(match vk {
+            0x0D => "enter".into(), 0x09 => "tab".into(), 0x1B => "esc".into(), 0x2E => "delete".into(),
+            0x21 => "pageup".into(), 0x22 => "pagedown".into(), 0x23 => "end".into(), 0x24 => "home".into(),
+            0x25 => "left".into(), 0x26 => "up".into(), 0x27 => "right".into(), 0x28 => "down".into(), 0x20 => "space".into(),
+            0x70..=0x87 => format!("f{}", vk - 0x6F),
+            0x30..=0x39 | 0x41..=0x5A => ((vk as u8) as char).to_ascii_lowercase().to_string(),
+            _ => return None,
+        })
+    }
+
+    pub(crate) struct Recording {
+        steps: Arc<Mutex<Vec<TaughtStep>>>,
+        hook_thread: u32,
+        stop: Arc<std::sync::atomic::AtomicBool>,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl Recording {
+        pub fn start() -> Result<Self> {
+            let (tx, rx) = channel::<Raw>();
+            *RAW.get_or_init(|| Mutex::new(None)).lock().unwrap() = Some(tx);
+            let steps = Arc::new(Mutex::new(Vec::new()));
+            let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            // hooks
+            let (tid_tx, tid_rx) = channel();
+            std::thread::spawn(move || unsafe {
+                let _ = tid_tx.send(GetCurrentThreadId());
+                let mh = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), None, 0);
+                let kh = SetWindowsHookExW(WH_KEYBOARD_LL, Some(key_proc), None, 0);
+                let mut msg = MSG::default();
+                while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+                if let Ok(h) = mh { let _ = UnhookWindowsHookEx(h); }
+                if let Ok(h) = kh { let _ = UnhookWindowsHookEx(h); }
+            });
+            let hook_thread = tid_rx.recv().map_err(|_| HandsError::Os("couldn't start watching".into()))?;
+            // meaning
+            let (s2, st2) = (steps.clone(), stop.clone());
+            let worker = std::thread::spawn(move || unsafe {
+                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+                let Ok(uia) = CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER) else { return };
+                let Ok(walker) = uia.ControlViewWalker() else { return };
+                let mut focus: Option<(IUIAutomationElement, Option<String>, ElementRef, bool)> = None;
+                let mut last_click: Option<(Instant, ElementRef)> = None;
+                let flush = |focus: &mut Option<(IUIAutomationElement, Option<String>, ElementRef, bool)>, steps: &Mutex<Vec<TaughtStep>>| {
+                    if let Some((e, before, r, secret)) = focus.as_mut() {
+                        let now = value_of(e);
+                        if now.is_some() && now != *before {
+                            // passwords are never written down: the skill asks for them each run
+                            let value = if *secret { "{{password}}".to_string() } else { now.clone().unwrap_or_default() };
+                            let mut s = steps.lock().unwrap();
+                            // typing more into the same field replaces the last value
+                            if let Some(TaughtStep::Fill { target, value: v }) = s.last_mut() {
+                                if target == r { *v = value; *before = now; return; }
+                            }
+                            s.push(TaughtStep::Fill { target: r.clone(), value });
+                            *before = now;
+                        }
+                    }
+                };
+                while !st2.load(std::sync::atomic::Ordering::SeqCst) {
+                    match rx.recv_timeout(Duration::from_millis(150)) {
+                        Ok(Raw::Down { x, y, button }) => {
+                            flush(&mut focus, &s2);
+                            if let Ok(e) = uia.ElementFromPoint(POINT { x, y }) {
+                                if let Some(r) = describe(&walker, &e) {
+                                    let mut s = s2.lock().unwrap();
+                                    let again = last_click.as_ref().is_some_and(|(t, lr)| t.elapsed() < Duration::from_millis(450) && *lr == r);
+                                    if again {
+                                        if let Some(TaughtStep::Click { double, .. }) = s.last_mut() { *double = true; }
+                                    } else {
+                                        s.push(TaughtStep::Click { target: r.clone(), button, double: false });
+                                    }
+                                    last_click = Some((Instant::now(), r));
+                                }
+                            }
+                        }
+                        Ok(Raw::Key { vk, ctrl, alt, shift, win }) => {
+                            let special = matches!(vk, 0x0D | 0x09 | 0x1B | 0x2E | 0x21..=0x28 | 0x70..=0x87);
+                            if (ctrl || alt || win || special) && !matches!(vk, 0x10..=0x12 | 0x5B | 0x5C | 0xA0..=0xA5) {
+                                if let Some(k) = keyname(vk) {
+                                    flush(&mut focus, &s2);
+                                    let mut keys = String::new();
+                                    if ctrl { keys.push_str("ctrl+"); }
+                                    if alt { keys.push_str("alt+"); }
+                                    if shift && (ctrl || alt || win) { keys.push_str("shift+"); }
+                                    if win { keys.push_str("win+"); }
+                                    keys.push_str(&k);
+                                    let (app, window) = focus.as_ref().map(|f| (f.2.app.clone(), f.2.window.clone())).unwrap_or_default();
+                                    s2.lock().unwrap().push(TaughtStep::Key { keys, app, window });
+                                }
+                            }
+                        }
+                        Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    }
+                    // follow the keyboard focus, and note what each field ends up holding
+                    if let Ok(f) = uia.GetFocusedElement() {
+                        let same = focus.as_ref().is_some_and(|(e, ..)| uia.CompareElements(e, &f).map(|b| b.as_bool()).unwrap_or(false));
+                        if !same {
+                            flush(&mut focus, &s2);
+                            focus = describe(&walker, &f).map(|r| {
+                                let secret = f.CurrentIsPassword().map(|b| b.as_bool()).unwrap_or(false);
+                                (f.clone(), value_of(&f), r, secret)
+                            });
+                        }
+                    }
+                }
+                flush(&mut focus, &s2);
+            });
+            Ok(Self { steps, hook_thread, stop, worker: Some(worker) })
+        }
+        pub fn steps(&self) -> Vec<TaughtStep> {
+            self.steps.lock().unwrap().clone()
+        }
+        pub fn stop(mut self) -> Vec<TaughtStep> {
+            unsafe {
+                let _ = PostThreadMessageW(self.hook_thread, WM_QUIT, WPARAM(0), LPARAM(0));
+            }
+            self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            *RAW.get_or_init(|| Mutex::new(None)).lock().unwrap() = None;
+            if let Some(w) = self.worker.take() {
+                let _ = w.join();
+            }
+            self.steps()
+        }
+    }
+
+    fn value_of(e: &IUIAutomationElement) -> Option<String> {
+        unsafe { e.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId).ok().and_then(|p| p.CurrentValue().ok()).map(|b| b.to_string()) }
+    }
+
+    /// What an element is, where it lives, and how to find it again.
+    fn describe(walker: &IUIAutomationTreeWalker, e: &IUIAutomationElement) -> Option<ElementRef> {
+        unsafe {
+            let pid = e.CurrentProcessId().ok()? as u32;
+            if pid == std::process::id() {
+                return None; // Minus itself (the dock's Done button, for one)
+            }
+            let role = role_of(e.CurrentControlType().map(|t| t.0).unwrap_or(0)).to_string();
+            let name = e.CurrentName().map(|b| b.to_string()).unwrap_or_default();
+            let bounds = to_rect(e.CurrentBoundingRectangle().ok()?);
+            // walk up to the top-level window, collecting named ancestors
+            let mut path = Vec::new();
+            let mut window = String::new();
+            let mut wbounds = bounds;
+            let mut cur = walker.GetParentElement(e).ok();
+            let mut guard = 0;
+            while let Some(p) = cur {
+                guard += 1;
+                if guard > 40 { break; }
+                let next = walker.GetParentElement(&p).ok();
+                let is_top = next.as_ref().map(|n| n.CurrentControlType().map(|t| t.0).unwrap_or(0) == 0 || n.CurrentProcessId().map(|x| x as u32 != pid).unwrap_or(true)).unwrap_or(true);
+                let r = role_of(p.CurrentControlType().map(|t| t.0).unwrap_or(0));
+                let n = p.CurrentName().map(|b| b.to_string()).unwrap_or_default();
+                if is_top {
+                    window = n;
+                    wbounds = p.CurrentBoundingRectangle().map(to_rect).unwrap_or(bounds);
+                    break;
+                }
+                if !n.trim().is_empty() && path.len() < 6 {
+                    path.push(format!("{}:{}", r, n.trim()));
+                }
+                cur = next;
+            }
+            path.reverse();
+            Some(ElementRef { role, name, app: exe_name(pid), window, path, at: crate::Rect { x: bounds.x - wbounds.x, y: bounds.y - wbounds.y, w: bounds.w, h: bounds.h } })
+        }
+    }
+}
