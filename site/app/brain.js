@@ -43,7 +43,12 @@ export async function respond(aid, text) {
   if (answer(aid, text.trim())) return;
   // the real runtime, when this agent's AI is connected (desktop app)
   if (rt.answer(aid, text.trim())) return;
-  if (rt.ready(a)) return rt.run(aid, text);
+  if (rt.ready(a)) {
+    // remember which of your messages were jobs, so Rewind knows where each one starts
+    const mine = [...(state.threads[aid] || [])].reverse().find((m) => m.from === 'me');
+    if (mine) mine.job = true;
+    return rt.run(aid, text);
+  }
   if (busy.has(aid)) return;
   busy.add(aid);
   const prevStatus = a.status;
@@ -65,10 +70,27 @@ export async function respond(aid, text) {
     react(aid, 'proud');
     return;
   }
+  // a thank-you makes its day (moods.js shows it on its face)
+  if (/\b(thanks|thank you|thx|good job|great job|well done|nice work|awesome|amazing|love it|perfect|obrigad[oa]|valeu)\b/i.test(t) && t.split(/\s+/).length <= 8) {
+    const lines = ['Anytime. That made my day.', 'Thank you! Happy to help.', 'Glad it helped. I’m here when you need me.', 'Aw, thanks. On to the next one whenever you are.'];
+    post(aid, { from: 'agent', text: lines[Math.floor(Math.random() * lines.length)] });
+    updateAgent(aid, { status: prevStatus === 'working' ? 'working' : 'idle', statusText: 'Ready' });
+    return;
+  }
   if (/^(hi|hey|hello|yo|sup|hola)\b/i.test(t)) {
     post(aid, { from: 'agent', text: `Hi! I’m ${a.name}. ${a.instructions ? 'I’m set up to: ' + a.instructions : 'Give me a job and I’ll get going.'} What should I start with?` });
     updateAgent(aid, { status: prevStatus === 'working' ? 'idle' : prevStatus, statusText: 'Ready' });
     react(aid, 'hello');
+    return;
+  }
+  // "ask Ledger to file the bank statement": it's a teammate's job, so it hands it over
+  const ho = t.match(/\b(?:ask|tell|get)\s+(\w+)\s+to\s+(.+)/i) || t.match(/\b(?:hand|pass|give|send)\s+(?:this|it|that)\s+(?:over\s+)?to\s+(\w+)[,:]?\s*(.*)/i);
+  const mate = ho && state.agents.find((x) => x.name.toLowerCase() === ho[1].toLowerCase() && x.id !== aid);
+  if (mate) {
+    const job = (ho[2] || t).replace(/[.!]+$/, '').replace(/^\w/, (c) => c.toUpperCase());
+    post(aid, { from: 'agent', text: `That’s ${mate.name}’s kind of job, so I’m handing it over with everything they need.` });
+    updateAgent(aid, { status: prevStatus === 'working' ? 'working' : 'idle', statusText: 'Ready' });
+    setTimeout(() => emit('handoff', { from: aid, to: mate.name, job }), 500);
     return;
   }
   // a job it was shown once: it does it that way, with this time's details

@@ -19,8 +19,8 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-const URL: &str = "https://api.anthropic.com/v1/messages";
-const VERSION: &str = "2026-10-21";
+pub(crate) const URL: &str = "https://api.anthropic.com/v1/messages";
+pub(crate) const VERSION: &str = "2026-10-21";
 
 /// Optional features, switched off one by one if the API rejects them.
 #[derive(Default)]

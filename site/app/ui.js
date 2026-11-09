@@ -46,6 +46,10 @@ const P = {
   edit: '<path d="M12.5 4.5l3 3-8.5 8.5H4v-3z"/>',
   showme: '<path d="M4.5 3.5l9 3.8-3.7 1.3-1.4 3.7z"/><circle cx="14.2" cy="14.2" r="2.3"/><path d="M10.4 8.6l2 2"/>',
   sunrise: '<path d="M2.5 15h15M5.5 15a4.5 4.5 0 019 0"/><path d="M10 4.5V7M4.6 7.6l1.6 1.6M15.4 7.6l-1.6 1.6"/>',
+  room: '<circle cx="10" cy="11.5" r="3.2"/><circle cx="4.3" cy="7" r="1.5"/><circle cx="10" cy="4.3" r="1.5"/><circle cx="15.7" cy="7" r="1.5"/><path d="M3.6 15.6c1.6 1.3 3.9 1.9 6.4 1.9s4.8-.6 6.4-1.9"/>',
+  rewind: '<path d="M9.6 5.5L3.8 10l5.8 4.5zM16.2 5.5L10.4 10l5.8 4.5z"/>',
+  file: '<path d="M5.5 2.8h6l3.5 3.5v10.9h-9.5z"/><path d="M11.5 2.8v3.5H15"/>',
+  timer: '<circle cx="10" cy="11" r="6"/><path d="M10 7.8V11l2 1.4M8 2.8h4"/>',
   bolt: '<path d="M11 3.5L5.5 11H10l-1 5.5L14.5 9H10z"/>',
   routine: '<path d="M4 10a6 6 0 0110.4-4M16 10a6 6 0 01-10.4 4"/><path d="M14.5 3v3.2h-3.2M5.5 17v-3.2h3.2"/>',
   speaker: '<path d="M3.5 8h2.8L10 5v10l-3.7-3H3.5z"/><path d="M13 7.6a3.4 3.4 0 010 4.8M15.2 5.5a6.4 6.4 0 010 9"/>',
@@ -61,8 +65,10 @@ const live = new Set();
 // A live 3D agent in a canvas that is already on the page.
 export function mascot(canvas, a, opts = {}) {
   // agents rest neutral and idle their own way; how they feel shows up while they work
-  const m = new Mascot3D(canvas, { shared: true, frame: 1.62, idle: state.settings.lively, color: a.color, emotion: opts.emotion || 'neutral', outfit: a.outfit, idleStyle: a.idle || 'calm', ...opts });
-  m.agentId = a.id; m.rest = opts.emotion || 'neutral'; live.add(m);
+  // how it feels today (moods.js) is how it rests
+  const rest = opts.emotion || (a.mood && a.mood !== 'neutral' ? a.mood : 'neutral');
+  const m = new Mascot3D(canvas, { shared: true, frame: 1.62, idle: state.settings.lively, color: a.color, outfit: a.outfit, idleStyle: a.idle || 'calm', ...opts, emotion: rest });
+  m.agentId = a.id; m.rest = rest; live.add(m);
   return m;
 }
 export const mascotsOf = (aid) => [...live].filter((m) => { if (!m.running) { live.delete(m); return false; } return m.agentId === aid; });

@@ -4,18 +4,22 @@ import { $, $$, esc, icon, face, mountMascots, mascotsOf, mod } from '../ui.js';
 import { STATUS } from '../data.js';
 import { openCreate } from './create.js';
 import * as su from '../standup.js';
+import * as saved from '../saved.js';
+import { WORDS } from '../moods.js';
 
 export function sidebar(el) {
   el.innerHTML = `
     <button class="btn btn-primary new-agent" data-tip="New agent|mod N">${icon('plus')}<span>New agent</span></button>
     <nav class="side-nav" aria-label="Places">
       <button data-go="standup" data-tip="Hear from every agent: what they did, what’s on today, what they need">${icon('sunrise')}<span>Stand-up</span><i class="su-due" hidden></i></button>
+      <button data-go="room" data-tip="One question, every agent answers with its own AI">${icon('room')}<span>Ask the room</span></button>
       <button data-go="approvals" data-tip="Things waiting for your OK">${icon('inbox')}<span>Approvals</span><b class="count" hidden></b></button>
       <button data-go="routines" data-tip="Work that runs on a schedule">${icon('routine')}<span>Routines</span></button>
       <button data-go="computers" data-tip="Cloud computers and this laptop">${icon('monitor')}<span>Computers</span></button>
     </nav>
     <div class="side-h"><span>Agents</span><b class="ag-count"></b></div>
     <div class="ag-list" role="list"></div>
+    <button class="saved" data-tip="About how long your agents’ work this week would have taken you by hand (an estimate from their steps)" data-tip-pos="right"><span class="sv-ic">${icon('timer')}</span><span class="sv-t"><b class="sv-n"></b><small>saved this week</small></span><span class="sv-bars"></span></button>
     <div class="side-foot">
       <button data-go="settings" data-tip="Settings|mod ,">${icon('gear')}<span>Settings</span></button>
       <div class="me" data-tip="Signed in on this computer"><span class="me-av">TM</span><span><b>ThatMaxwell</b><small>Acme workspace</small></span></div>
@@ -23,7 +27,7 @@ export function sidebar(el) {
 
   const list = $('.ag-list', el);
   const row = (a) => `
-    <button class="ag-row" role="listitem" data-agent="${esc(a.id)}" data-tip="${esc(a.name)} · ${esc(a.role || 'Agent')}" data-tip-pos="right">
+    <button class="ag-row" role="listitem" data-agent="${esc(a.id)}" data-tip="${esc(a.name)} · ${esc(a.role || 'Agent')}${WORDS[a.mood] ? ` · feeling ${WORDS[a.mood]}` : ''}" data-tip-pos="right">
       ${face(a, 30)}
       <span class="ag-meta"><b>${esc(a.name)}</b><small>${esc(a.statusText || STATUS[a.status]?.label || '')}</small></span>
       <span class="ag-right"><i class="dot ${STATUS[a.status]?.tone || 'dim'}"></i><b class="unread" ${a.unread ? '' : 'hidden'}>${a.unread || ''}</b></span>
@@ -46,6 +50,7 @@ export function sidebar(el) {
     if (!r) return build();
     $('.ag-meta b', r).textContent = a.name;
     $('.ag-meta small', r).textContent = a.statusText || STATUS[a.status]?.label || '';
+    r.dataset.tip = `${a.name} · ${a.role || 'Agent'}${WORDS[a.mood] ? ` · feeling ${WORDS[a.mood]}` : ''}`;
     $('.dot', r).className = 'dot ' + (STATUS[a.status]?.tone || 'dim');
     const u = $('.unread', r); u.hidden = !a.unread; u.textContent = a.unread || '';
   };
@@ -62,6 +67,20 @@ export function sidebar(el) {
   });
   list.addEventListener('pointerout', (e) => { const r = e.target.closest('.ag-row'); if (r && !r.contains(e.relatedTarget)) r._hov = false; });
 
+  // the time saved meter: counts up when it grows, with a bar for each of the last 7 days
+  let shown = 0;
+  const meter = (bump) => {
+    const w = saved.week(), max = Math.max(...w.days.map((d) => d.secs), 1);
+    $('.sv-bars', el).innerHTML = w.days.map((d, i) => `<i style="height:${Math.max(8, (d.secs / max) * 100)}%" class="${i === 6 ? 'today' : ''}"></i>`).join('');
+    const n = $('.sv-n', el), from = shown, to = w.total; shown = to;
+    if (!bump || to - from < 1) { n.textContent = saved.fmt(to); return; }
+    import('../ui.js').then(({ motion }) => motion().animate(from, to, { duration: 0.9, ease: [0.22, 1, 0.36, 1], onUpdate: (v) => (n.textContent = saved.fmt(v)) }));
+    const plus = document.createElement('span'); plus.className = 'sv-plus'; plus.textContent = '+' + saved.fmt(Math.max(60, bump)); $('.saved', el).appendChild(plus);
+    setTimeout(() => plus.remove(), 1400);
+  };
+  meter();
+  on('saved', ({ secs }) => meter(secs));
+  $('.saved', el).addEventListener('click', () => go('standup'));
   on('agent', patch);
   on('agents', build);
   on('route', mark);

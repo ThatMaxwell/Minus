@@ -9,6 +9,11 @@ import { chat, leaveChat } from './views/chat.js';
 import { approvals, routines, computers, settings } from './views/pages.js';
 import { palette } from './views/palette.js';
 import { standup } from './views/standup.js';
+import { room } from './views/room.js';
+import { startHandoffs } from './handoff.js';
+import { startMeter } from './saved.js';
+import { startMoods } from './moods.js';
+import { startDrop } from './drop.js';
 import * as su from './standup.js';
 import { openCreate } from './views/create.js';
 import { autoRead, stopSpeaking, speaking } from './voice.js';
@@ -34,7 +39,7 @@ app.innerHTML = `
 
 sidebar($('.side'));
 const main = $('.main');
-const views = { chat, approvals, routines, computers, settings, standup };
+const views = { chat, approvals, routines, computers, settings, standup, room };
 const render = () => { main.onclick = null; leaveChat(); (views[state.route.view] || chat)(main); };
 on('route', render);
 on('agents', () => { if (state.route.view === 'chat') { if (!agent(state.route.agent)) state.route.agent = state.agents[0]?.id; render(); } });
@@ -73,6 +78,10 @@ function shortcuts() {
 
 tooltips();
 startBridge();
+startHandoffs();
+startMeter();
+startMoods();
+startDrop();
 account.start();
 runtime.listen();
 idleWatch(90000);

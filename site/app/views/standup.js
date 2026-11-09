@@ -6,6 +6,7 @@ import { react } from '../director.js';
 import { resolve, choose, respond } from '../brain.js';
 import { hasKey, speak, stopSpeaking } from '../voice.js';
 import * as su from '../standup.js';
+import * as saved from '../saved.js';
 
 const DATE = () => new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
 
@@ -61,6 +62,7 @@ export function standup(main) {
     const needs = speaking.reduce((n, b) => n + b.needs.length, 0), busy = speaking.filter((b) => b.agent.status === 'working' || b.today.length).length;
     return `<div class="su-end-card"><h2>That’s everyone.</h2>
       <p>${needs ? `<b>${needs} thing${needs === 1 ? '' : 's'}</b> need${needs === 1 ? 's' : ''} you` : 'Nothing needs you'} · <b>${busy}</b> agent${busy === 1 ? '' : 's'} busy today · <b>${speaking.length - busy}</b> free for a job</p>
+      ${saved.yesterday() > 60 ? `<p class="su-saved">${icon('timer')}Yesterday they saved you about <b>${saved.fmt(saved.yesterday())}</b></p>` : ''}
       <div class="su-free">${speaking.filter((b) => !(b.agent.status === 'working' || b.today.length)).map((b) => `<button class="chip" data-open="${esc(b.agent.id)}">${face(b.agent, 20)}<span>Give ${esc(b.agent.name)} a job</span></button>`).join('')}</div></div>`;
   };
 

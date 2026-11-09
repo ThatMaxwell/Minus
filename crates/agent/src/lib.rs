@@ -9,6 +9,7 @@
 
 mod anthropic;
 mod openai;
+pub mod room;
 pub mod skills;
 pub mod tools;
 
@@ -49,6 +50,8 @@ pub enum Event {
     Remember { text: String },
     /// Its face changed: the agent picks its own expressions (see `faces`).
     Face { name: String },
+    /// It handed work to a teammate, who should start on it.
+    HandOff { to: String, job: String },
 }
 
 /// Who the agent is and what it may do.
@@ -68,6 +71,9 @@ pub struct AgentSpec {
     /// Jobs the person showed it once, to replay with `use_skill`
     #[serde(default)]
     pub skills: Vec<skills::Skill>,
+    /// The other agents on the team: name and job, for `hand_off`
+    #[serde(default)]
+    pub team: Vec<(String, String)>,
 }
 
 /// Which AI it thinks with. The key never leaves this computer except to that provider.
@@ -204,6 +210,37 @@ impl Runtime {
         tools::PACE_MS.store(ms.min(2000), Ordering::Relaxed);
     }
 
+    /// Goes back in time: keeps the first `jobs` jobs you gave the agent (and its work on
+    /// them) and forgets everything after, so you can continue differently from there.
+    /// What it already did on the computer stays done.
+    pub fn rewind(&self, agent: &str, jobs: usize) {
+        if self.is_running(agent) {
+            self.stop(agent);
+        }
+        let path = self.inner.dir.join(format!("{}.json", safe(agent)));
+        let saved: Option<(String, Vec<Value>)> = self.inner.convos.lock().unwrap().get(agent).and_then(|c| c.try_lock().ok().map(|c| (c.family.clone(), c.messages.clone())))
+            .or_else(|| std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()));
+        let Some((fam, mut messages)) = saved else { return };
+        let cut = job_starts(&messages).get(jobs).copied().unwrap_or(messages.len());
+        messages.truncate(cut);
+        if let Some(c) = self.inner.convos.lock().unwrap().get(agent) {
+            if let Ok(mut c) = c.try_lock() {
+                c.messages = messages.clone();
+            }
+        }
+        if let Ok(b) = serde_json::to_vec(&(&fam, &messages)) {
+            let _ = std::fs::write(path, b);
+        }
+    }
+
+    /// Ask the room: this agent's answer to a question for the whole team (no tools).
+    pub async fn room_answer(&self, spec: &AgentSpec, brain: &Brain, notes: &str, question: &str, others: &[(String, String)], round: u8) -> Result<room::Answer, String> {
+        room::answer(&self.inner.http, brain, spec, notes, question, others, round).await.map_err(|e| e.to_string())
+    }
+    pub async fn room_sum_up(&self, spec: &AgentSpec, brain: &Brain, question: &str, said: &[(String, String)]) -> Result<room::Answer, String> {
+        room::sum_up(&self.inner.http, brain, spec, question, said).await.map_err(|e| e.to_string())
+    }
+
     /// Starts over with an empty conversation.
     pub fn forget(&self, agent: &str) {
         self.inner.convos.lock().unwrap().remove(agent);
@@ -295,6 +332,10 @@ impl Runtime {
         if !spec.skills.is_empty() {
             text.push_str("\n\nSkills the person showed you (run them with `use_skill`):\n");
             text.push_str(&spec.skills.iter().map(|s| s.summary()).collect::<Vec<_>>().join("\n"));
+        }
+        if !spec.team.is_empty() {
+            text.push_str("\n\nYour team (hand them work that's theirs with `hand_off`): ");
+            text.push_str(&spec.team.iter().map(|(n, r)| if r.is_empty() { n.clone() } else { format!("{n} ({r})") }).collect::<Vec<_>>().join(", "));
         }
         let user = json!({"role": "user", "content": [{"type": "text", "text": format!("{text}\n\n(Today is {date}.)")}]});
         c.messages.push(if fam == "anthropic" { user } else { json!({"role": "user", "content": format!("{text}\n\n(Today is {date}.)")}) });
@@ -400,6 +441,19 @@ impl Runtime {
                 if t.trim().is_empty() { return err("nothing to remember".into()); }
                 emit(Event::Remember { text: t });
                 ok(json!("saved in your notebook; you'll see it with your next jobs"))
+            }
+            "hand_off" => {
+                let to = s("to").unwrap_or_default();
+                let job = s("job").unwrap_or_default();
+                let Some((name, _)) = spec.team.iter().find(|(n, _)| n.eq_ignore_ascii_case(to.trim())) else {
+                    let names = spec.team.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ");
+                    return err(if names.is_empty() { "You don't have teammates yet.".into() } else { format!("There's no teammate called {to}. Your team: {names}.") });
+                };
+                if job.trim().is_empty() {
+                    return err("Say what they should do in `job`.".into());
+                }
+                emit(Event::HandOff { to: name.clone(), job });
+                ok(json!(format!("Handed to {name}. They're on it; mention it in your summary.")))
             }
             "use_skill" => {
                 let want = s("skill").unwrap_or_default();
@@ -519,6 +573,7 @@ fn with_faces(emit: Emit) -> Emit {
             Event::Remember { text } => Event::Remember { text: clean(&text) },
             Event::Ask { call, question, options, placeholder } => Event::Ask { call, question: clean(&question), options, placeholder },
             Event::Approval { call, action, details } => Event::Approval { call, action: clean(&action), details: clean(&details) },
+            Event::HandOff { to, job } => Event::HandOff { to, job: clean(&job) },
             other => other,
         };
         for name in shown {
@@ -529,6 +584,16 @@ fn with_faces(emit: Emit) -> Emit {
             emit(e);
         }
     })
+}
+
+/// Where each job you gave starts in a conversation (your messages, not tool results).
+fn job_starts(messages: &[Value]) -> Vec<usize> {
+    messages
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m["role"] == "user" && (m["content"].is_string() || m["content"][0]["type"] == "text"))
+        .map(|(i, _)| i)
+        .collect()
 }
 
 fn safe(s: &str) -> String {
@@ -596,7 +661,7 @@ mod tests {
     use super::*;
     #[test]
     fn prompt_has_permissions() {
-        let a = AgentSpec { id: "s".into(), name: "Scout".into(), role: "Research".into(), instructions: "Find leads".into(), computer: "Cloud computer 1".into(), skills: vec![], perms: vec![("Browse the web".into(), "allow".into()), ("Send email".into(), "ask".into()), ("Spend money".into(), "never".into())] };
+        let a = AgentSpec { id: "s".into(), name: "Scout".into(), role: "Research".into(), instructions: "Find leads".into(), computer: "Cloud computer 1".into(), skills: vec![], team: vec![], perms: vec![("Browse the web".into(), "allow".into()), ("Send email".into(), "ask".into()), ("Spend money".into(), "never".into())] };
         let p = system_prompt(&a);
         assert!(p.contains("without asking: browse the web"));
         assert!(p.contains("and: send email"));
@@ -610,6 +675,17 @@ mod tests {
         let (t, f) = faces("<[[nope] stays <[[ also");
         assert_eq!(t, "stays <[[ also");
         assert!(f.is_empty());
+    }
+    #[test]
+    fn rewind_finds_jobs() {
+        let m = vec![
+            json!({"role": "user", "content": [{"type": "text", "text": "job 1"}]}),
+            json!({"role": "assistant", "content": [{"type": "tool_use"}]}),
+            json!({"role": "user", "content": [{"type": "tool_result"}]}),
+            json!({"role": "assistant", "content": [{"type": "text", "text": "done"}]}),
+            json!({"role": "user", "content": "job 2 (openai style)"}),
+        ];
+        assert_eq!(job_starts(&m), vec![0, 4]);
     }
     #[test]
     fn date_looks_right() {

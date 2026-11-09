@@ -72,6 +72,14 @@ pub fn custom_tools() -> Vec<Value> {
             }, "required": ["skill"]}
         }),
         json!({
+            "name": "hand_off",
+            "description": "Hand a piece of work to a teammate whose job it is (the job text lists your team). They start on it right away and the person sees the hand-off. Give them everything they need in `job`, as if you were briefing a colleague. Use it for work outside your job, not to avoid finishing your own.",
+            "input_schema": {"type": "object", "properties": {
+                "to": {"type": "string", "description": "The teammate's name"},
+                "job": {"type": "string", "description": "What they should do, with the details they need"}
+            }, "required": ["to", "job"]}
+        }),
+        json!({
             "name": "message_user",
             "description": "Send the person a message while you keep working, for something they need now or verbatim (a code, a link, a number they asked for). Not for routine progress.",
             "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}

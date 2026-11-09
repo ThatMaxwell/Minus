@@ -11,6 +11,7 @@ import { keySheet } from './pages.js';
 import * as rt from '../runtime.js';
 import * as nb from '../notebook.js';
 import * as teach from '../teach.js';
+import { land } from '../drop.js';
 
 let off = [];
 // stop listening to the store when another page takes over (the router calls this)
@@ -31,6 +32,7 @@ export function chat(main) {
           <button class="chip" data-act="model" data-tip="Which AI ${esc(a.name)} thinks with">${prov.icon}<span>${esc(prov.name)}</span>${icon('chevron', 'rot')}</button>
           <button class="chip" data-act="computer" data-tip="Which computer ${esc(a.name)} works on">${icon(comp?.kind === 'local' ? 'laptop' : 'cloud')}<span>${esc(comp?.name || 'No computer')}</span>${icon('chevron', 'rot')}</button>
           <span class="sep"></span>
+          <button class="icon-btn" data-act="rewind" data-tip="Rewind: go back to an earlier moment and continue from there">${icon('rewind')}</button>
           <button class="icon-btn" data-act="teach" data-tip="Show me once: do a job while ${esc(a.name)} watches, and it learns how">${icon('showme')}</button>
           <button class="icon-btn nb-btn" data-act="notebook" data-tip="${esc(a.name)}’s notebook: what it has learned">${icon('book')}<span class="nb-count" ${nb.count(a) ? '' : 'hidden'}>${nb.count(a)}</span></button>
           <button class="icon-btn" data-act="look" data-tip="Change how ${esc(a.name)} looks">${icon('sparkle')}</button>
@@ -44,6 +46,7 @@ export function chat(main) {
           <div class="thread" role="log" aria-live="polite"></div>
           <form class="composer" autocomplete="off">
             <div class="cmp-box">
+              <div class="cmp-files" hidden></div>
               <textarea rows="1" placeholder="Message ${esc(a.name)}…" aria-label="Message ${esc(a.name)}"></textarea>
               <div class="cmp-rec" hidden aria-live="polite"><span class="rec-dot"></span><span class="rec-wave">${'<i></i>'.repeat(28)}</span><span class="rec-t">Listening…</span><span class="grow"></span><span class="muted small rec-k"><kbd>Enter</kbd> done · <kbd>Esc</kbd> cancel</span></div>
               <div class="cmp-row">
@@ -115,7 +118,26 @@ export function chat(main) {
   thread.addEventListener('pointerover', (e) => { const b = e.target.closest('[data-ap="approved"]'); if (b) react(a.id, 'look', b); });
 
   /* ───────── composer: the agent listens, nods along, and nods when you send ───────── */
-  const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 180) + 'px'; send.disabled = !ta.value.trim(); };
+  const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 180) + 'px'; send.disabled = !ta.value.trim() && !files.length; };
+  // files dropped on this agent wait here until you send
+  let files = [];
+  const chips = () => {
+    const box = $('.cmp-files', main);
+    box.hidden = !files.length;
+    box.innerHTML = files.map((f, i) => `<span class="fchip" data-tip="${esc(f.path || f.name)}">${icon('file')}<span>${esc(f.name)}</span><button type="button" data-unfile="${i}" aria-label="Remove ${esc(f.name)}">${icon('x')}</button></span>`).join('');
+    grow();
+  };
+  off.push(on('attach', ({ agent: aid, files: fs, text }) => {
+    if (aid !== a.id) return;
+    const before = files.length;
+    files = files.concat(fs);
+    if (text) ta.value = (ta.value ? ta.value + '\n' : '') + text;
+    chips();
+    $$('.cmp-files .fchip', main).slice(before).forEach(land);
+    ta.focus();
+    if (fs.length) ta.placeholder = `What should ${a.name} do with ${fs.length === 1 ? 'it' : 'them'}?`;
+  }));
+  main.addEventListener('click', (e) => { const x = e.target.closest('[data-unfile]'); if (x) { files.splice(+x.dataset.unfile, 1); chips(); } });
   let lastLen = 0;
   ta.addEventListener('focus', () => react(a.id, 'listening', ta));
   ta.addEventListener('blur', () => { if (!ta.value.trim()) react(a.id, 'calm'); });
@@ -128,15 +150,18 @@ export function chat(main) {
   });
   ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
   const sendText = (text, via) => {
+    const fs = files; files = []; chips(); ta.placeholder = `Message ${a.name}…`;
+    if (!text && fs.length) text = fs.length === 1 ? 'Here’s a file for you.' : `Here are ${fs.length} files for you.`;
     ta.value = ''; grow(); lastLen = 0;
     if (via === 'voice') heardYou(a.id);
-    post(a.id, via ? { from: 'me', text, via } : { from: 'me', text });
+    post(a.id, { from: 'me', text, ...(via ? { via } : {}), ...(fs.length ? { files: fs } : {}) });
     react(a.id, 'send');
-    respond(a.id, text);
+    // the agent gets where the files are, so it can open them on its computer
+    respond(a.id, fs.length ? `${text}\n\nFiles you were given:\n${fs.map((f) => `- ${f.path || f.name}`).join('\n')}` : text);
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const text = ta.value.trim(); if (text) sendText(text);
+    const text = ta.value.trim(); if (text || files.length) sendText(text);
   });
   setTimeout(() => ta.focus({ preventScroll: true }), 50);
 
@@ -241,6 +266,7 @@ export function chat(main) {
     if (act === 'computer') return menu(b, state.computers.map((c) => ({ label: c.name, checked: c.id === a.computer, icon: c.kind === 'local' ? 'laptop' : 'cloud', run: () => { updateAgent(a.id, { computer: c.id }); toast(`${a.name} moved to ${c.name}`); react(a.id, c.kind === 'local' ? 'peek' : 'yes'); chat(main); } })));
     if (act === 'look') return openCreate({ edit: a.id, step: 0 });
     if (act === 'teach') return teach.start(a.id);
+    if (act === 'rewind') return rewind();
     if (act === 'pause') {
       if (teach.busy.has(a.id)) { teach.stop(a.id); toast(`${a.name} will stop after this step`, { icon: 'pause' }); return; }
       if (rt.running(a.id)) { rt.stop(a.id); toast(`${a.name} will stop after this step`, { icon: 'pause' }); return; }
@@ -267,6 +293,79 @@ export function chat(main) {
     if (act === 'mic') return talk();
     if (act === 'notebook') { b.classList.remove('fresh'); return nb.open(main, a.id); }
   };
+  /* ───────── rewind: scrub back through the conversation and continue from an earlier moment ───────── */
+  function rewind() {
+    if ($('.rw', main)) return;
+    const msgs = state.threads[a.id] || [];
+    // you can continue from just before anything you said, or from now
+    const stops = msgs.map((m, i) => (m.from === 'me' ? i : -1)).filter((i) => i >= 0).concat(msgs.length);
+    if (stops.length < 2) return toast(`Nothing to rewind yet. Give ${a.name} a job first.`, { icon: 'rewind' });
+    const nodes = () => $$('.thread > [data-mid]', main);
+    const bar = document.createElement('div');
+    bar.className = 'rw';
+    const n = msgs.length;
+    bar.innerHTML = `<div class="rw-top"><span class="rw-ic">${icon('rewind')}</span><div class="rw-t"><b>Rewind</b><span class="rw-when">Now</span></div>
+        <button type="button" class="btn btn-quiet btn-sm" data-rw="cancel">Cancel</button><button type="button" class="btn btn-primary btn-sm" data-rw="go" disabled>Continue from here</button></div>
+      <div class="rw-track"><div class="rw-line"></div><div class="rw-past"></div>${msgs.map((m, i) => m.kind === 'day' ? '' : `<i class="rw-tick ${m.from === 'me' ? 'you' : m.kind === 'steps' ? 'work' : m.kind === 'approval' ? 'ask' : ''}" style="left:${((i + 0.5) / n) * 100}%"></i>`).join('')}
+        <button type="button" class="rw-head" role="slider" aria-label="Moment to go back to" aria-valuemin="0" aria-valuemax="${stops.length - 1}"></button></div>
+      <p class="rw-note">${esc(a.name)} forgets everything after this moment. What it already did on its computer stays done.</p>`;
+    $('.thread-col', main).prepend(bar);
+    const M = motion();
+    M.animate(bar, { opacity: [0, 1], y: [-10, 0] }, { duration: 0.3, ease: IN });
+    const track = $('.rw-track', bar), head = $('.rw-head', bar), past = $('.rw-past', bar);
+    let k = stops.length - 1;
+    const xOf = (i) => (i / n) * 100;
+    const show = (nk, glide = true) => {
+      k = Math.max(0, Math.min(stops.length - 1, nk));
+      const at = stops[k], x = xOf(at);
+      M.animate(head, { left: x + '%' }, glide ? { type: 'spring', stiffness: 500, damping: 36 } : { duration: 0 });
+      M.animate(past, { width: x + '%' }, glide ? { type: 'spring', stiffness: 500, damping: 36 } : { duration: 0 });
+      head.setAttribute('aria-valuenow', k);
+      nodes().forEach((el) => { const i = msgs.findIndex((m) => (m.mid || m.id) === el.dataset.mid); el.classList.toggle('future', i >= at); });
+      const m = msgs[at];
+      $('.rw-when', bar).textContent = m ? `Before you said “${m.text.length > 54 ? m.text.slice(0, 52) + '…' : m.text}”${m.at ? ' · ' + timeAgo(m.at) + ' ago' : ''}` : 'Now';
+      $('[data-rw="go"]', bar).disabled = at === n;
+      const node = m && $(`[data-mid="${CSS.escape(m.mid || m.id || '')}"]`, thread);
+      if (node) node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      // its eyes go back in time with you
+      mascotsOf(a.id).forEach((mm) => { if ($('.ch-h', main).contains(mm.canvas)) { mm.look(at === n ? 0 : -0.7, 0.1, { noBlink: true }); mm.pointerT = 1.5; } });
+    };
+    const fromX = (cx) => { const r = track.getBoundingClientRect(), p = Math.max(0, Math.min(1, (cx - r.left) / r.width)) * n; let best = 0; stops.forEach((s, i) => { if (Math.abs(s - p) < Math.abs(stops[best] - p)) best = i; }); return best; };
+    track.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); show(fromX(e.clientX)); head.focus();
+      const move = (m) => show(fromX(m.clientX), false);
+      const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); show(k); };
+      addEventListener('pointermove', move); addEventListener('pointerup', up);
+    });
+    const close = () => { nodes().forEach((el) => el.classList.remove('future')); removeEventListener('keydown', keys, true); M.animate(bar, { opacity: 0, y: -8 }, { duration: 0.2 }).then(() => bar.remove()); react(a.id, 'calm'); };
+    const go = () => {
+      const at = stops[k]; if (at === n) return close();
+      const m = msgs[at], jobs = msgs.slice(0, at).filter((x) => x.job).length;
+      if (rt.running(a.id)) rt.stop(a.id);
+      rt.rewind(a.id, jobs);
+      state.threads[a.id] = msgs.slice(0, at);
+      post(a.id, { from: 'system', kind: 'rewound', text: 'Rewound to here' });
+      updateAgent(a.id, { status: 'idle', statusText: 'Ready' });
+      removeEventListener('keydown', keys, true);
+      chat(main);
+      const t2 = $('.composer textarea', main); t2.value = m.text; t2.dispatchEvent(new Event('input')); t2.focus(); t2.select();
+      toast(`${a.name} is back to just before you said that. Change it, or send it again.`, { icon: 'rewind' });
+      mascotsOf(a.id).forEach((mm) => mm.gesture('spin'));
+    };
+    const keys = (e) => {
+      if (!bar.isConnected) return removeEventListener('keydown', keys, true);
+      if (e.key === 'ArrowLeft') { e.preventDefault(); show(k - 1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); show(k + 1); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+      else if (e.key === 'Enter' && document.activeElement === head) { e.preventDefault(); go(); }
+    };
+    addEventListener('keydown', keys, true);
+    off.push(() => removeEventListener('keydown', keys, true));
+    bar.addEventListener('click', (e) => { const b = e.target.closest('[data-rw]'); if (!b) return; b.dataset.rw === 'go' ? go() : close(); });
+    show(stops.length - 2, true);
+    react(a.id, 'look', bar);
+  }
+
   // the agent glances at whatever header button you point at
   $('.ch-tools', main).addEventListener('pointerover', (e) => { const b = e.target.closest('button'); if (b) mascotsOf(a.id).forEach((m) => main.contains(m.canvas) && $('.ch-h', main).contains(m.canvas) && m.lookAtEl(b, 1.5)); });
 }
@@ -276,8 +375,9 @@ export function msgHTML(a, m, prev, cont) {
   const sameRun = cont ?? (prev && prev.from === m.from && prev.kind !== 'day' && m.from === 'agent');
   if (m.kind === 'day') return `<div class="day" data-mid="${mid}"><span>${esc(m.text)}</span></div>`;
   if (m.kind === 'problem') return `<div class="m sys problem" data-mid="${mid}">${icon('x')}<span>${esc(m.text)}</span></div>`;
+  if (m.kind === 'rewound') return `<div class="m sys rw-mark" data-mid="${mid}">${icon('rewind')}<span>Rewound to here</span></div>`;
   if (m.from === 'system' || m.kind === 'handoff') return `<div class="m sys" data-mid="${mid}">${icon('handoff')}<span>${esc(m.text)}</span></div>`;
-  if (m.from === 'me') return `<div class="m me ${m.via === 'voice' ? 'said' : ''}" data-mid="${mid}">${m.via === 'voice' ? `<span class="said-ic" data-tip="You said this out loud">${icon('mic')}</span>` : ''}<p>${esc(m.text)}</p></div>`;
+  if (m.from === 'me') return `<div class="m me ${m.via === 'voice' ? 'said' : ''}" data-mid="${mid}">${m.via === 'voice' ? `<span class="said-ic" data-tip="You said this out loud">${icon('mic')}</span>` : ''}${m.files?.length ? `<div class="m-files">${m.files.map((f) => `<span class="fchip" data-tip="${esc(f.path || f.name)}">${icon('file')}<span>${esc(f.name)}</span></span>`).join('')}</div>` : ''}<p>${esc(m.text)}</p></div>`;
   const head = sameRun ? '<span class="gutter"></span>' : face(a, 26);
   const name = sameRun ? '' : `<b class="who">${esc(a.name)} <time>${m.at ? timeAgo(m.at) : ''}</time></b>`;
   let body = '';

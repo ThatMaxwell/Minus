@@ -83,22 +83,45 @@ fn data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     app.path().app_data_dir().map_err(|e| e.to_string())
 }
 
+/// The agent's AI with its key (read here, never sent to the page).
+fn brain_of(app: &AppHandle, brain: BrainIn) -> Result<agent::Brain, String> {
+    let key = keys::get(&data_dir(app)?, &brain.slot).unwrap_or_default();
+    if key.is_empty() && brain.provider != "ollama" {
+        return Err("This agent's AI isn't connected yet. Add a key in Settings → Your AI.".into());
+    }
+    Ok(agent::Brain { provider: brain.provider, model: brain.model, key, effort: brain.effort, base_url: brain.base_url })
+}
+
 #[tauri::command]
 async fn agent_run(app: AppHandle, rt: tauri::State<'_, Agents>, spec: agent::AgentSpec, brain: BrainIn, text: String) -> Result<(), String> {
     if rt.0.is_running(&spec.id) {
         return Err(format!("{} is already working. Stop it first, or wait.", spec.name));
     }
-    let key = keys::get(&data_dir(&app)?, &brain.slot).unwrap_or_default();
-    if key.is_empty() && brain.provider != "ollama" {
-        return Err("This agent's AI isn't connected yet. Add a key in Settings → Your AI.".into());
-    }
+    let brain = brain_of(&app, brain)?;
     let id = spec.id.clone();
     let app2 = app.clone();
     let emit: Arc<dyn Fn(agent::Event) + Send + Sync> = Arc::new(move |e| {
         let _ = app2.emit("agent-event", serde_json::json!({ "agent": id, "event": e }));
     });
-    rt.0.start(spec, agent::Brain { provider: brain.provider, model: brain.model, key, effort: brain.effort, base_url: brain.base_url }, text, emit);
+    rt.0.start(spec, brain, text, emit);
     Ok(())
+}
+
+/// Ask the room: one agent's answer (round 1), or its reply to the others (round 2).
+#[tauri::command]
+async fn room_answer(app: AppHandle, rt: tauri::State<'_, Agents>, spec: agent::AgentSpec, brain: BrainIn, notes: String, question: String, others: Vec<(String, String)>, round: u8) -> Result<agent::room::Answer, String> {
+    let brain = brain_of(&app, brain)?;
+    rt.0.room_answer(&spec, &brain, &notes, &question, &others, round).await
+}
+#[tauri::command]
+async fn room_sum_up(app: AppHandle, rt: tauri::State<'_, Agents>, spec: agent::AgentSpec, brain: BrainIn, question: String, said: Vec<(String, String)>) -> Result<agent::room::Answer, String> {
+    let brain = brain_of(&app, brain)?;
+    rt.0.room_sum_up(&spec, &brain, &question, &said).await
+}
+/// Rewind: keep the first `jobs` jobs of this agent's conversation and forget the rest.
+#[tauri::command]
+fn agent_rewind(rt: tauri::State<'_, Agents>, agent: String, jobs: usize) {
+    rt.0.rewind(&agent, jobs);
 }
 
 #[tauri::command]
@@ -297,11 +320,11 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
 /// The commands the app's pages can call.
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, dock_fit, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run]
+    tauri::generate_handler![hands_windows, hands_look, hands_act, dock_fit, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
 }
 #[cfg(mobile)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run]
+    tauri::generate_handler![hands_windows, hands_look, hands_act, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

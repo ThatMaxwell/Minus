@@ -47,15 +47,41 @@ export const ready = (a) => !!tauri && !!a && (keyed.has(a.model) || a.model ===
 const live = new Map(); // agent -> { card mid, steps, usage, model }
 const asking = new Map(); // agent -> { call, mid }
 
+const specOf = (a) => ({
+  id: a.id, name: a.name, role: a.role || '', instructions: a.instructions || '',
+  computer: computer(a.computer)?.name || 'this computer',
+  perms: PERMISSIONS.map((p) => [p.name, a.perms?.[p.id] || 'ask']),
+  skills: (a.skills || []).map((s) => ({ id: s.id, name: s.name, about: s.about || '', steps: s.steps })),
+  team: state.agents.filter((x) => x.id !== a.id && x.status !== 'off').map((x) => [x.name, x.role || '']),
+});
+const brainOf = (a) => { const eng = ENGINES[a.model], ps = providerState(a.model) || {}; return { provider: eng.provider, slot: a.model, model: ps.modelId || eng.model, effort: a.effort || 'medium', base_url: ps.baseUrl || null }; };
+export const modelOf = (a) => (providerState(a.model) || {}).modelId || ENGINES[a.model]?.model;
+
+/** Ask the room: this agent's answer, with its own AI and no tools. */
+export async function roomAnswer(a, question, others = [], round = 1) {
+  const r = await tauri.core.invoke('room_answer', { spec: specOf(a), brain: brainOf(a), notes: nb.asText(a), question, others, round });
+  return { ...r, cost: cost(modelOf(a), { input: r.input, output: r.output, cacheRead: 0 }) };
+}
+export async function roomSumUp(a, question, said) {
+  const r = await tauri.core.invoke('room_sum_up', { spec: specOf(a), brain: brainOf(a), question, said });
+  return { ...r, cost: cost(modelOf(a), { input: r.input, output: r.output, cacheRead: 0 }) };
+}
+/** Roughly what a question to the room costs on your own keys, before you ask. */
+export function estimate(agents, question, rounds = 1) {
+  let total = 0, unknown = 0;
+  for (const a of agents) {
+    if (!ready(a)) continue;
+    const c = cost(modelOf(a), { input: (900 + question.length / 3) * rounds + 300 * (rounds - 1) * agents.length, output: 180 * rounds, cacheRead: 0 });
+    if (c == null) unknown++; else total += c;
+  }
+  return { total, unknown };
+}
+/** Rewind: the agent forgets everything after its first `jobs` jobs. */
+export function rewind(aid, jobs) { tauri?.core.invoke('agent_rewind', { agent: aid, jobs }); }
+
 export async function run(aid, text) {
-  const a = agent(aid), eng = ENGINES[a.model], ps = providerState(a.model) || {};
-  const spec = {
-    id: a.id, name: a.name, role: a.role || '', instructions: a.instructions || '',
-    computer: computer(a.computer)?.name || 'this computer',
-    perms: PERMISSIONS.map((p) => [p.name, a.perms?.[p.id] || 'ask']),
-    skills: (a.skills || []).map((s) => ({ id: s.id, name: s.name, about: s.about || '', steps: s.steps })),
-  };
-  const brain = { provider: eng.provider, slot: a.model, model: ps.modelId || eng.model, effort: a.effort || 'medium', base_url: ps.baseUrl || null };
+  const a = agent(aid);
+  const spec = specOf(a), brain = brainOf(a);
   try {
     // the notebook goes with the job (not into the standing instructions, which stay cached)
     const notes = nb.asText(a);
@@ -145,6 +171,9 @@ export function listen() {
         break;
       case 'remember':
         nb.add(aid, e.text, 'agent');
+        break;
+      case 'hand_off':
+        emit('handoff', { from: aid, to: e.to, job: e.job });
         break;
       case 'face':
         // its own expression, chosen by the agent (the code it wrote never shows)
