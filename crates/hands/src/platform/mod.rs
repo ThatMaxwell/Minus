@@ -4,21 +4,21 @@
 #[cfg(windows)]
 mod windows;
 
-use crate::{ActResult, Action, HandsError, Result, Snapshot, SnapshotOptions, Target, WindowInfo};
+use crate::{ActResult, Action, HandsError, Result, Shot, Snapshot, SnapshotOptions, Target, WindowInfo};
 use std::sync::mpsc::{channel, Sender};
 
 pub(crate) trait Backend {
     fn windows(&mut self) -> Result<Vec<WindowInfo>>;
     fn snapshot(&mut self, target: Target, opts: SnapshotOptions) -> Result<Snapshot>;
     fn act(&mut self, actions: Vec<Action>, keep_going: bool) -> Result<Vec<ActResult>>;
-    fn screenshot(&mut self) -> Result<Vec<u8>>;
+    fn screenshot(&mut self, max_edge: u32) -> Result<Shot>;
 }
 
 enum Req {
     Windows(Sender<Result<Vec<WindowInfo>>>),
     Snapshot(Target, SnapshotOptions, Sender<Result<Snapshot>>),
     Act(Vec<Action>, bool, Sender<Result<Vec<ActResult>>>),
-    Screenshot(Sender<Result<Vec<u8>>>),
+    Screenshot(u32, Sender<Result<Shot>>),
 }
 
 #[derive(Clone)]
@@ -61,7 +61,7 @@ impl Worker {
                         Req::Windows(r) => { let _ = r.send(b.windows()); }
                         Req::Snapshot(t, o, r) => { let _ = r.send(b.snapshot(t, o)); }
                         Req::Act(a, k, r) => { let _ = r.send(b.act(a, k)); }
-                        Req::Screenshot(r) => { let _ = r.send(b.screenshot()); }
+                        Req::Screenshot(m, r) => { let _ = r.send(b.screenshot(m)); }
                     }
                 }
             })
@@ -84,7 +84,7 @@ impl Worker {
     pub fn act(&self, a: Vec<Action>, keep_going: bool) -> Result<Vec<ActResult>> {
         self.ask(|r| Req::Act(a, keep_going, r))
     }
-    pub fn screenshot(&self) -> Result<Vec<u8>> {
-        self.ask(Req::Screenshot)
+    pub fn screenshot(&self, max_edge: u32) -> Result<Shot> {
+        self.ask(|r| Req::Screenshot(max_edge, r))
     }
 }

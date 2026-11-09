@@ -74,7 +74,7 @@ fn main() {
                     "click" => (vec![Action::Click { id: num(1)?, button: Default::default(), double: false }], target(args.get(2))),
                     "fill" => (vec![Action::Fill { id: num(1)?, text: text(2)? }], target(args.get(3))),
                     "type" => (vec![Action::Type { text: text(1)? }], target(args.get(2))),
-                    "key" => (vec![Action::Key { keys: text(1)? }], target(args.get(2))),
+                    "key" => (vec![Action::Key { keys: text(1)?, repeat: 1 }], target(args.get(2))),
                     _ => (serde_json::from_str(args.get(1).ok_or("give the actions as JSON")?).map_err(|e| format!("bad actions: {e}"))?, target(args.get(2))),
                 };
                 focused_wait(&t);

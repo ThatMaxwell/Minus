@@ -9,7 +9,8 @@
 
 use crate::outline::finalize;
 use crate::platform::Backend;
-use crate::{parse_keys, sleep_ms, ActResult, Action, Element, HandsError, MouseButton, Rect, Result, Snapshot, SnapshotOptions, Target, WindowInfo};
+use crate::{encode_scaled, parse_keys, sleep_ms, ActResult, Action, Element, HandsError, IdMap, MouseButton, Rect, Result, Shot, Snapshot, SnapshotOptions, Target, WindowInfo};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use windows::core::{Interface, BSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
@@ -27,8 +28,9 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 pub(crate) struct Uia {
     uia: IUIAutomation,
     cache: IUIAutomationCacheRequest,
-    /// Elements of the last snapshot, by id - 1.
-    last: Vec<IUIAutomationElement>,
+    /// Elements of the last snapshot, by their (stable) id.
+    last: HashMap<u32, IUIAutomationElement>,
+    ids: IdMap,
 }
 
 /// UI Automation client objects are free-threaded in the MTA; this lets us hand one to a
@@ -79,12 +81,12 @@ impl Uia {
             }
             cache.SetTreeScope(TreeScope_Subtree).map_err(os)?;
             cache.SetTreeFilter(&uia.ControlViewCondition().map_err(os)?).map_err(os)?;
-            Ok(Self { uia, cache, last: Vec::new() })
+            Ok(Self { uia, cache, last: HashMap::new(), ids: IdMap::default() })
         }
     }
 
     fn el(&self, id: u32) -> Result<IUIAutomationElement> {
-        self.last.get((id as usize).wrapping_sub(1)).cloned().ok_or(HandsError::NoElement(id))
+        self.last.get(&id).cloned().ok_or(HandsError::NoElement(id))
     }
 
     fn hwnd_for(&mut self, target: &Target) -> Result<HWND> {
@@ -138,18 +140,28 @@ impl Backend for Uia {
         let mut truncated = false;
         walk(&root, 0, &opts, &mut elements, &mut refs, &mut truncated);
         finalize(&mut elements);
-        self.last = refs;
+        let ids = self.ids.stabilize(window.handle, &mut elements);
+        self.last = ids.into_iter().zip(refs).collect();
         Ok(Snapshot { window, elements, took_ms: t0.elapsed().as_millis() as u64, truncated })
     }
 
     fn act(&mut self, actions: Vec<Action>, keep_going: bool) -> Result<Vec<ActResult>> {
         let mut out = Vec::new();
         for a in actions {
+            let info = if matches!(a, Action::CursorPos) {
+                unsafe {
+                    let mut p = POINT::default();
+                    let _ = GetCursorPos(&mut p);
+                    Some(format!("X={}, Y={}", p.x, p.y))
+                }
+            } else {
+                None
+            };
             let r = self.one(a);
             let failed = r.is_err();
             out.push(match r {
-                Ok(how) => ActResult { ok: true, how: how.into(), error: None },
-                Err(e) => ActResult { ok: false, how: String::new(), error: Some(e.to_string()) },
+                Ok(how) => ActResult { ok: true, how: how.into(), error: None, info },
+                Err(e) => ActResult { ok: false, how: String::new(), error: Some(e.to_string()), info: None },
             });
             if failed && !keep_going {
                 break;
@@ -158,8 +170,8 @@ impl Backend for Uia {
         Ok(out)
     }
 
-    fn screenshot(&mut self) -> Result<Vec<u8>> {
-        screenshot_png()
+    fn screenshot(&mut self, max_edge: u32) -> Result<Shot> {
+        screenshot_scaled(max_edge)
     }
 }
 
@@ -225,11 +237,20 @@ impl Uia {
                     type_text(&text)?;
                     Ok("keyboard")
                 }
-                Action::Key { keys } => {
-                    for chord in parse_keys(&keys) {
-                        press_chord(&chord)?;
-                        sleep_ms(25);
+                Action::Key { keys, repeat } => {
+                    for _ in 0..repeat.clamp(1, 100) {
+                        for chord in parse_keys(&keys) {
+                            press_chord(&chord)?;
+                            sleep_ms(20);
+                        }
                     }
+                    Ok("keyboard")
+                }
+                Action::HoldKey { keys, secs } => {
+                    let codes = codes(&parse_keys(&keys).concat())?;
+                    send(&codes.iter().map(|c| key_input(*c, false)).collect::<Vec<_>>())?;
+                    sleep_ms((secs.clamp(0.0, 300.0) * 1000.0) as u64);
+                    send(&codes.iter().rev().map(|c| key_input(*c, true)).collect::<Vec<_>>())?;
                     Ok("keyboard")
                 }
                 Action::Focus { id } => {
@@ -279,10 +300,45 @@ impl Uia {
                     }
                     Ok("wheel")
                 }
-                Action::ClickAt { x, y, button } => {
-                    click_at(x, y, button, false)?;
+                Action::ClickAt { x, y, button, count, mods } => {
+                    with_mods(&mods, || click_n(x, y, button, count.clamp(1, 3), false))?;
                     Ok("mouse")
                 }
+                Action::MoveTo { x, y } => {
+                    SetCursorPos(x, y).map_err(os)?;
+                    Ok("mouse")
+                }
+                Action::Drag { from, to, mods } => {
+                    with_mods(&mods, || {
+                        SetCursorPos(from[0], from[1]).map_err(os)?;
+                        send(&[mouse_input(MOUSEEVENTF_LEFTDOWN, 0)])?;
+                        // move in steps so apps see a real drag
+                        for i in 1..=12 {
+                            let t = i as f64 / 12.0;
+                            let _ = SetCursorPos(from[0] + ((to[0] - from[0]) as f64 * t) as i32, from[1] + ((to[1] - from[1]) as f64 * t) as i32);
+                            sleep_ms(12);
+                        }
+                        send(&[mouse_input(MOUSEEVENTF_LEFTUP, 0)])
+                    })?;
+                    Ok("mouse")
+                }
+                Action::MouseDown => { send(&[mouse_input(MOUSEEVENTF_LEFTDOWN, 0)])?; Ok("mouse") }
+                Action::MouseUp => { send(&[mouse_input(MOUSEEVENTF_LEFTUP, 0)])?; Ok("mouse") }
+                Action::ScrollAt { at, direction, amount, mods } => {
+                    if let Some([x, y]) = at {
+                        SetCursorPos(x, y).map_err(os)?;
+                    }
+                    let n = amount.clamp(1, 50) as i32;
+                    let (flag, delta) = match direction.as_str() {
+                        "up" => (MOUSEEVENTF_WHEEL, n * WHEEL_DELTA as i32),
+                        "down" => (MOUSEEVENTF_WHEEL, -n * WHEEL_DELTA as i32),
+                        "left" => (MOUSEEVENTF_HWHEEL, -n * WHEEL_DELTA as i32),
+                        _ => (MOUSEEVENTF_HWHEEL, n * WHEEL_DELTA as i32),
+                    };
+                    with_mods(&mods, || send(&[mouse_input(flag, delta)]))?;
+                    Ok("wheel")
+                }
+                Action::CursorPos => Ok("cursor"),
                 Action::Launch { target } => {
                     use std::os::windows::process::CommandExt;
                     std::process::Command::new("cmd").args(["/C", "start", "", &target]).creation_flags(0x0800_0000).spawn().map_err(|e| HandsError::Os(e.to_string()))?;
@@ -551,14 +607,25 @@ fn vk(name: &str) -> Option<u16> {
     })
 }
 
-fn press_chord(chord: &[String]) -> Result<()> {
-    let codes: Vec<u16> = chord.iter().map(|k| vk(k).ok_or_else(|| HandsError::Os(format!("unknown key \"{k}\"")))).collect::<Result<_>>()?;
-    let mut v: Vec<INPUT> = codes.iter().map(|c| key_input(*c, false)).collect();
-    v.extend(codes.iter().rev().map(|c| key_input(*c, true)));
-    send(&v)
+fn codes(keys: &[String]) -> Result<Vec<u16>> {
+    keys.iter().map(|k| vk(k).ok_or_else(|| HandsError::Os(format!("unknown key \"{k}\"")))).collect()
 }
 
-fn click_at(x: i32, y: i32, button: MouseButton, double: bool) -> Result<()> {
+/// Runs `f` with modifier keys ("ctrl", "ctrl+shift", "") held down.
+fn with_mods(mods: &str, f: impl FnOnce() -> Result<()>) -> Result<()> {
+    let keys: Vec<String> = mods.split('+').map(|k| k.trim().to_lowercase()).filter(|k| !k.is_empty()).collect();
+    let c = codes(&keys)?;
+    if !c.is_empty() {
+        send(&c.iter().map(|k| key_input(*k, false)).collect::<Vec<_>>())?;
+    }
+    let r = f();
+    if !c.is_empty() {
+        let _ = send(&c.iter().rev().map(|k| key_input(*k, true)).collect::<Vec<_>>());
+    }
+    r
+}
+
+fn click_n(x: i32, y: i32, button: MouseButton, count: u8, restore: bool) -> Result<()> {
     unsafe {
         let mut back = POINT::default();
         let _ = GetCursorPos(&mut back);
@@ -568,16 +635,30 @@ fn click_at(x: i32, y: i32, button: MouseButton, double: bool) -> Result<()> {
             MouseButton::Right => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
             MouseButton::Middle => (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
         };
-        let mut v = vec![mouse_input(d, 0), mouse_input(u, 0)];
-        if double {
-            v.extend([mouse_input(d, 0), mouse_input(u, 0)]);
+        let mut v = Vec::new();
+        for _ in 0..count {
+            v.push(mouse_input(d, 0));
+            v.push(mouse_input(u, 0));
         }
         send(&v)?;
-        sleep_ms(30);
-        // put the pointer back where the person left it
-        let _ = SetCursorPos(back.x, back.y);
+        if restore {
+            sleep_ms(30);
+            let _ = SetCursorPos(back.x, back.y);
+        }
         Ok(())
     }
+}
+
+fn press_chord(chord: &[String]) -> Result<()> {
+    let codes = codes(chord)?;
+    let mut v: Vec<INPUT> = codes.iter().map(|c| key_input(*c, false)).collect();
+    v.extend(codes.iter().rev().map(|c| key_input(*c, true)));
+    send(&v)
+}
+
+/// Element clicks put the pointer back where the person left it.
+fn click_at(x: i32, y: i32, button: MouseButton, double: bool) -> Result<()> {
+    click_n(x, y, button, if double { 2 } else { 1 }, true)
 }
 
 fn wheel(pages: f32, horizontal: bool) -> Result<()> {
@@ -592,7 +673,7 @@ fn wheel(pages: f32, horizontal: bool) -> Result<()> {
 
 /* ───────── screenshot ───────── */
 
-fn screenshot_png() -> Result<Vec<u8>> {
+fn screenshot_scaled(max_edge: u32) -> Result<Shot> {
     unsafe {
         let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
         let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
@@ -620,14 +701,7 @@ fn screenshot_png() -> Result<Vec<u8>> {
             p.swap(0, 2); // BGRA -> RGBA
             p[3] = 255;
         }
-        let mut out = Vec::new();
-        {
-            let mut enc = png::Encoder::new(&mut out, w as u32, h as u32);
-            enc.set_color(png::ColorType::Rgba);
-            enc.set_compression(png::Compression::Fast);
-            let mut wr = enc.write_header().map_err(|e| HandsError::Os(e.to_string()))?;
-            wr.write_image_data(&px).map_err(|e| HandsError::Os(e.to_string()))?;
-        }
-        Ok(out)
+        let (png, width, height, scale) = encode_scaled(&px, w as u32, h as u32, max_edge)?;
+        Ok(Shot { png, width, height, scale, origin_x: x, origin_y: y })
     }
 }
