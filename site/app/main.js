@@ -8,6 +8,8 @@ import { sidebar } from './views/sidebar.js';
 import { chat, leaveChat } from './views/chat.js';
 import { approvals, routines, computers, settings } from './views/pages.js';
 import { palette } from './views/palette.js';
+import { standup } from './views/standup.js';
+import * as su from './standup.js';
 import { openCreate } from './views/create.js';
 import { autoRead, stopSpeaking, speaking } from './voice.js';
 import { startBridge } from './bridge.js';
@@ -32,7 +34,7 @@ app.innerHTML = `
 
 sidebar($('.side'));
 const main = $('.main');
-const views = { chat, approvals, routines, computers, settings };
+const views = { chat, approvals, routines, computers, settings, standup };
 const render = () => { main.onclick = null; leaveChat(); (views[state.route.view] || chat)(main); };
 on('route', render);
 on('agents', () => { if (state.route.view === 'chat') { if (!agent(state.route.agent)) state.route.agent = state.agents[0]?.id; render(); } });
@@ -74,5 +76,7 @@ startBridge();
 account.start();
 runtime.listen();
 idleWatch(90000);
+// stand-up time: the dock offers it (see bridge.js); check once a minute
+setInterval(() => su.due() && import('./store.js').then(({ emit }) => emit('standup')), 60e3);
 autoRead((e) => import('./ui.js').then(({ toast }) => toast(e.human || 'Voice didn’t work this time.', { icon: 'speaker' })));
 keepNames();

@@ -6,6 +6,7 @@ import { state, on, agent, post, updateAgent, go } from './store.js';
 import { respond, choose, resolve } from './brain.js';
 import { react } from './director.js';
 import * as teach from './teach.js';
+import * as su from './standup.js';
 
 const ch = new BroadcastChannel('minus-dock');
 const tauri = window.__TAURI__;
@@ -37,7 +38,9 @@ function snapshot() {
   }
   const w = teach.watching(), wa = w && agent(w.agent);
   const watch = wa ? { agent: looks(wa), count: w.steps.length, recent: w.steps.slice(-3).map((s) => teach.describe(s)) } : null;
-  return { working, asks, watch };
+  let morning = null;
+  if (su.due() && state.route.view !== 'standup') { const r = su.round().speaking; if (r.length) morning = { agents: r.slice(0, 4).map((b) => looks(b.agent)), count: r.length, needs: r.reduce((n, b) => n + b.needs.length, 0) }; }
+  return { working, asks, watch, morning };
 }
 
 let t = 0;
@@ -46,13 +49,15 @@ const push = () => { clearTimeout(t); t = setTimeout(() => ch.postMessage({ type
 export function startBridge() {
   on('*', (ev, data) => {
     if (ev === 'message:update' && data?.msg?.kind === 'steps') pulses.set(data.agent, (pulses.get(data.agent) || 0) + 1);
-    if (['agent', 'message', 'message:update', 'approvals', 'agents', 'work', 'teach'].includes(ev)) push();
+    if (['agent', 'message', 'message:update', 'approvals', 'agents', 'work', 'teach', 'standup', 'route'].includes(ev)) push();
   });
   ch.onmessage = ({ data: d }) => {
     if (!d || typeof d !== 'object') return;
     if (d.type === 'hello') return push();
     if (d.type === 'teach-done') return teach.finish(true);
     if (d.type === 'teach-cancel') return teach.finish(false);
+    if (d.type === 'standup') { go('standup'); tauri?.core.invoke('show_main'); return; }
+    if (d.type === 'standup-later') return su.later();
     const a = d.agent && agent(d.agent);
     if (d.type === 'open') {
       if (a) go('chat', { agent: a.id });

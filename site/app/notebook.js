@@ -47,7 +47,7 @@ const skillCard = (a, s) => {
     <footer><span>${ins.length ? `Asks for ${ins.map((i) => esc(i.replace(/_/g, ' '))).join(', ')}` : 'Same every time'}</span><button class="btn btn-primary btn-xs" data-skrun>${icon('play')}Run</button></footer>
   </article>`;
 };
-const showMe = (a) => `<div class="sk-teach"><span class="sk-ic big">${icon('showme')}</span><div><b>Show ${esc(a.name)} once</b><p>Do a job yourself while ${esc(a.name)} watches. It can do it again by itself, with new details each time.</p></div><button class="btn btn-sm" data-teach>${icon('eye')}Start</button></div>`;
+const showMe = (a) => `<div class="sk-teach"><span class="sk-ic big">${icon('showme')}</span><div><b>Show ${esc(a.name)} once</b><p>Do a job yourself while ${esc(a.name)} watches. It can do it again by itself, with new details each time.</p></div><button class="btn btn-quiet btn-sm" data-teach>${icon('eye')}Start</button></div>`;
 const skillsHTML = (a) => showMe(a) + ((a.skills || []).map((s) => skillCard(a, s)).join('') || '');
 
 /** Opens the notebook over the chat (the computer panel side). */

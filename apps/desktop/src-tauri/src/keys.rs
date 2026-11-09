@@ -32,6 +32,7 @@ pub fn list(dir: &Path) -> Vec<String> {
 }
 
 pub fn set(dir: &Path, slot: &str, key: &str) -> Result<(), String> {
+    #[allow(unused_mut)]
     let mut stored = false;
     #[cfg(desktop)]
     if let Ok(e) = keyring::Entry::new(SERVICE, slot) {

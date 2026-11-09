@@ -285,8 +285,8 @@ export function msgHTML(a, m, prev, cont) {
     const sk = (a.skills || []).find((s) => s.id === m.skill);
     body = `<div class="card skill-card">
       <div class="card-h">${icon('showme')}<span>Learned a new skill</span></div>
-      <p class="sk-name">${esc(m.name)}</p>
-      <p class="sk-meta">${m.count} step${m.count === 1 ? '' : 's'}${m.inputs?.length ? ` · asks for ${m.inputs.map((i) => `<span class="sk-chip">${icon('bolt')}${esc(i.replace(/_/g, ' '))}</span>`).join(' ')}` : ''}</p>
+      <div class="sk-body"><p class="sk-name">${esc(m.name)}</p>
+      <p class="sk-meta">${m.count} step${m.count === 1 ? '' : 's'}${m.inputs?.length ? ` <span aria-hidden="true">·</span> asks for ${m.inputs.map((i) => `<span class="sk-chip">${icon('bolt')}${esc(i.replace(/_/g, ' '))}</span>`).join('')}` : ''}</p></div>
       <div class="ask-btns"><button class="btn btn-quiet btn-sm" data-open-skills>See all skills</button>${sk ? `<button class="btn btn-primary btn-sm" data-run-skill="${esc(sk.id)}">${icon('play')}Run it</button>` : ''}</div>
     </div>`;
   } else if (m.kind === 'steps') {

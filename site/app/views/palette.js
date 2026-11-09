@@ -8,6 +8,7 @@ export function palette() {
   if ($('.palette')) return;
   const actions = [
     { t: 'New agent', i: 'plus', k: 'N', run: () => openCreate() },
+    { t: 'Morning stand-up', i: 'sunrise', run: () => go('standup') },
     { t: 'Approvals', i: 'inbox', run: () => go('approvals') },
     { t: 'Routines', i: 'routine', run: () => go('routines') },
     { t: 'Computers', i: 'monitor', run: () => go('computers') },

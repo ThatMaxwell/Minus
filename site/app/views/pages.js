@@ -149,6 +149,9 @@ export function settings(main) {
         ${tog('lively', 'Lively agents', 'They look around, blink and react to what you do')}
         ${tog('notify', 'Notify me', 'When an agent needs your OK or finishes a job')}
         ${tog('sounds', 'Sounds', 'Soft sounds for approvals and finished work')}
+        <div class="set-row"><span class="set-t"><b>Morning stand-up</b><small>${state.settings.standup === false ? 'Off' : `Every day at ${esc(state.settings.standupAt || '09:00')}, the island offers it`}</small></span>
+          <input class="field time-in" type="time" value="${esc(state.settings.standupAt || '09:00')}" data-sutime aria-label="Stand-up time" ${state.settings.standup === false ? 'disabled' : ''}>
+          <button class="switch ${state.settings.standup === false ? '' : 'on'}" role="switch" aria-checked="${state.settings.standup !== false}" data-sutoggle aria-label="Morning stand-up"><i></i></button></div>
       </div>
       <h2 class="sec-h">About</h2>
       <div class="set-list"><div class="set-row"><span class="set-t"><b>Minus</b><small>Beta · MIT licensed · <a href="https://github.com/ThatMaxwell/Minus" target="_blank" rel="noopener">github.com/ThatMaxwell/Minus</a></small></span></div>
@@ -166,6 +169,7 @@ export function settings(main) {
   off.push(on('account', draw), on('devices', fillDevices));
   const tog = (k, t, d) => `<div class="set-row"><span class="set-t"><b>${t}</b><small>${d}</small></span><button class="switch ${state.settings[k] ? 'on' : ''}" role="switch" aria-checked="${!!state.settings[k]}" data-set="${k}" aria-label="${t}"><i></i></button></div>`;
   draw();
+  main.onchange = (e) => { if (e.target.matches('[data-sutime]') && e.target.value) { state.settings.standupAt = e.target.value; save(); emit('standup'); draw(); } };
   main.onclick = (e) => {
     const pc = e.target.closest('[data-pc]');
     if (pc) {
@@ -179,6 +183,7 @@ export function settings(main) {
       const k = s.dataset.set; state.settings[k] = !state.settings[k]; save(); draw();
       if (k === 'lively') document.documentElement.classList.toggle('calm', !state.settings.lively);
     }
+    if (e.target.closest('[data-sutoggle]')) { state.settings.standup = state.settings.standup === false; save(); emit('standup'); return draw(); }
     if (e.target.closest('[data-reset]')) reset();
     const ac = e.target.closest('[data-acct]');
     if (ac) {

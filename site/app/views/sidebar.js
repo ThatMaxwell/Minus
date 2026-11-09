@@ -3,11 +3,13 @@ import { state, on, go, pendingApprovals, agent } from '../store.js';
 import { $, $$, esc, icon, face, mountMascots, mascotsOf, mod } from '../ui.js';
 import { STATUS } from '../data.js';
 import { openCreate } from './create.js';
+import * as su from '../standup.js';
 
 export function sidebar(el) {
   el.innerHTML = `
     <button class="btn btn-primary new-agent" data-tip="New agent|mod N">${icon('plus')}<span>New agent</span></button>
     <nav class="side-nav" aria-label="Places">
+      <button data-go="standup" data-tip="Hear from every agent: what they did, what’s on today, what they need">${icon('sunrise')}<span>Stand-up</span><i class="su-due" hidden></i></button>
       <button data-go="approvals" data-tip="Things waiting for your OK">${icon('inbox')}<span>Approvals</span><b class="count" hidden></b></button>
       <button data-go="routines" data-tip="Work that runs on a schedule">${icon('routine')}<span>Routines</span></button>
       <button data-go="computers" data-tip="Cloud computers and this laptop">${icon('monitor')}<span>Computers</span></button>
@@ -37,6 +39,7 @@ export function sidebar(el) {
     $$('[data-go]', el).forEach((b) => b.classList.toggle('on', state.route.view === b.dataset.go));
     const n = pendingApprovals().length, c = $('.count', el);
     c.hidden = !n; c.textContent = n;
+    $('.su-due', el).hidden = !su.due();
   };
   const patch = (a) => {
     const r = $(`.ag-row[data-agent="${CSS.escape(a.id)}"]`, list);
@@ -63,6 +66,7 @@ export function sidebar(el) {
   on('agents', build);
   on('route', mark);
   on('approvals', mark);
+  on('standup', mark);
   on('message', ({ agent: aid }) => {
     const a = agent(aid);
     if (a && !(state.route.view === 'chat' && state.route.agent === aid)) { a.unread = (a.unread || 0) + 1; patch(a); }

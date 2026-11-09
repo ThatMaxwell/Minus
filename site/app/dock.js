@@ -4,6 +4,7 @@
 //   hover or click     -> opens: everyone at work, with pause and open
 //   someone needs you  -> opens by itself with the question: buttons, or a box to type in
 //   showing an agent   -> a little recorder: it's watching, each step as you go, and Done
+//   stand-up time      -> your agents lined up, ready to tell you about their day
 // It lives in its own always-on-top window in the desktop app and floats over the page in
 // the web preview. Its window is always exactly as big as the island, so it never blocks
 // clicks on whatever is underneath.
@@ -17,7 +18,7 @@ const island = document.getElementById('island'), stash = document.getElementByI
 const SHADOW = { x: 18, b: 24 }; // window room for the island's shadow
 const SPRING = { type: 'spring', stiffness: 380, damping: 34, mass: 0.9 };
 
-let S = { working: [], asks: [], watch: null };
+let S = { working: [], asks: [], watch: null, morning: null };
 let mode = '', key = '', size = { w: 40, h: 40 };
 let hover = false, pinned = false, hoverT = 0, leaveT = 0;
 const later = new Set(); // asks you put off with "Later"
@@ -50,7 +51,7 @@ const MINUS = { id: 'minus', name: 'Minus', color: COLORS.cloud, outfit: {} };
 const slot = (a, s) => `<span class="slot" data-face="${esc(a.id)}" style="--s:${s}"></span>`;
 function placeFaces(root) {
   root.querySelectorAll('.slot[data-face]').forEach((el) => {
-    const a = S.working.find((x) => x.id === el.dataset.face) || S.asks.map((q) => q.agent).find((x) => x.id === el.dataset.face) || (S.watch?.agent.id === el.dataset.face ? S.watch.agent : null) || (el.dataset.face === 'minus' ? MINUS : null);
+    const a = S.working.find((x) => x.id === el.dataset.face) || S.asks.map((q) => q.agent).find((x) => x.id === el.dataset.face) || (S.watch?.agent.id === el.dataset.face ? S.watch.agent : null) || S.morning?.agents.find((x) => x.id === el.dataset.face) || (el.dataset.face === 'minus' ? MINUS : null);
     if (a) el.appendChild(face(a).wrap);
   });
 }
@@ -65,6 +66,7 @@ function pickMode() {
   if (S.watch) return 'watch';
   if (sentNote) return 'sent';
   if (activeAsk()) return 'ask';
+  if (S.morning) return 'morning';
   if (S.working.length || S.asks.length) return hover || pinned ? 'open' : 'pill';
   return hover ? 'hi' : 'dot';
 }
@@ -83,6 +85,13 @@ function html(m) {
       <span class="w-n" data-k="wn" ${w.count ? '' : 'hidden'}>${w.count}</span>
       <button class="w-x" data-act="teach-cancel" aria-label="Stop without saving">${ICON.x}</button>
       <button class="btn solid" data-act="teach-done">Done</button></div>`;
+  }
+  if (m === 'morning') {
+    const g = S.morning;
+    return `<div class="c-watch c-morning"><span class="stack">${g.agents.map((a) => slot(a, 0.6)).join('')}</span>
+      <div class="w-t"><b>Morning stand-up</b><span>${g.count} agent${g.count === 1 ? '' : 's'} ready${g.needs ? ` · ${g.needs} need${g.needs === 1 ? 's' : ''} you` : ''}</span></div>
+      <button class="w-x" data-act="su-later" aria-label="Not today">${ICON.x}</button>
+      <button class="btn solid" data-act="su-start">Start</button></div>`;
   }
   if (m === 'dot') return `<div class="c-dot" data-act="open">${slot(MINUS, 0.6)}</div>`;
   if (m === 'hi') return `<div class="c-hi" data-act="open">${slot(MINUS, 0.6)}<b>Minus</b><span>All quiet</span></div>`;
@@ -116,7 +125,7 @@ function html(m) {
   return '';
 }
 
-const layoutKey = (m) => m + '|' + (m === 'watch' ? S.watch.agent.id : m === 'ask' ? activeAsk()?.mid : m === 'sent' ? sentNote.text : m === 'open' ? S.working.map((w) => w.id).join(',') + '/' + S.asks.map((q) => q.mid).join(',') : m === 'pill' ? S.working.map((w) => w.id).join(',') + '/' + S.asks.length + '/' + (S.working.length === 1 ? S.working[0].status : '') : '');
+const layoutKey = (m) => m + '|' + (m === 'watch' ? S.watch.agent.id : m === 'morning' ? S.morning.count + '/' + S.morning.needs : m === 'ask' ? activeAsk()?.mid : m === 'sent' ? sentNote.text : m === 'open' ? S.working.map((w) => w.id).join(',') + '/' + S.asks.map((q) => q.mid).join(',') : m === 'pill' ? S.working.map((w) => w.id).join(',') + '/' + S.asks.length + '/' + (S.working.length === 1 ? S.working[0].status : '') : '');
 
 /* ───────── fitting the window to the island ───────── */
 function fit(w, h) {
@@ -143,7 +152,7 @@ function render(force = false) {
   // grow the window first, shrink it after
   fit(Math.max(w, size.w), Math.max(h, size.h));
   anim?.stop?.();
-  const radius = m === 'dot' || m === 'hi' || m === 'pill' ? 20 : m === 'sent' || m === 'watch' ? 26 : 28;
+  const radius = m === 'dot' || m === 'hi' || m === 'pill' ? 20 : m === 'sent' || m === 'watch' || m === 'morning' ? 26 : 28;
   anim = animate(island, { width: w, height: h, borderRadius: radius }, SPRING);
   anim.then(() => { if (mode === m) fit(w, h); });
   size = { w, h };
@@ -203,6 +212,7 @@ function moods() {
   }
   for (const q of S.asks) mood(q.agent.id, q.kind === 'approval' ? 'worried' : 'curious');
   if (S.watch) mood(S.watch.agent.id, 'listening');
+  if (mode === 'morning') for (const a of S.morning?.agents || []) mood(a.id, 'happy');
 }
 
 /* ───────── input ───────── */
@@ -216,6 +226,8 @@ island.addEventListener('click', (e) => {
   const act = b.dataset.act;
   const q = activeAsk();
   if (act === 'pin') { pinned = true; render(); }
+  if (act === 'su-start') ch.postMessage({ type: 'standup' });
+  if (act === 'su-later') ch.postMessage({ type: 'standup-later' });
   if (act === 'teach-done' || act === 'teach-cancel') {
     const f = S.watch && faces.get(S.watch.agent.id);
     if (f) { if (act === 'teach-done') { f.m.setEmotion('happy'); f.m.hop(); } else f.m.setEmotion('neutral'); }
@@ -263,7 +275,7 @@ ch.onmessage = ({ data }) => {
   for (const id of [...later]) if (!now.has(id)) later.delete(id);
   // agents that stopped working leave the stash
   for (const [id, f] of faces) {
-    if (id !== 'minus' && !S.working.find((w) => w.id === id) && !S.asks.find((q) => q.agent.id === id) && S.watch?.agent.id !== id && f.wrap.parentElement === stash) { f.m.destroy(); f.wrap.remove(); faces.delete(id); }
+    if (id !== 'minus' && !S.working.find((w) => w.id === id) && !S.asks.find((q) => q.agent.id === id) && S.watch?.agent.id !== id && !S.morning?.agents.find((a) => a.id === id) && f.wrap.parentElement === stash) { f.m.destroy(); f.wrap.remove(); faces.delete(id); }
   }
   render();
 };

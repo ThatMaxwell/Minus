@@ -10,9 +10,14 @@ use serde::Deserialize;
 use std::sync::Arc;
 use serde::Serialize;
 use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, Manager};
+// the window, dock, ghost and tray are desktop things; the phone app only controls agents
+#[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+#[cfg(desktop)]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+#[cfg(desktop)]
+use tauri::{PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 /// Minus Hands, started on first use (it isn't available on every platform yet).
 #[derive(Default)]
@@ -119,9 +124,11 @@ struct Teach(hands::Teacher);
 #[tauri::command]
 fn teach_start(app: AppHandle, t: tauri::State<'_, Teach>) -> Result<(), String> {
     t.0.start().map_err(|e| e.to_string())?;
+    #[cfg(desktop)]
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.minimize();
     }
+    let _ = app;
     Ok(())
 }
 #[tauri::command]
@@ -131,7 +138,9 @@ fn teach_steps(t: tauri::State<'_, Teach>) -> Vec<hands::TaughtStep> {
 #[tauri::command]
 fn teach_stop(app: AppHandle, t: tauri::State<'_, Teach>) -> Vec<hands::TaughtStep> {
     let steps = t.0.stop();
+    #[cfg(desktop)]
     show_main(app);
+    let _ = app;
     steps
 }
 
@@ -160,6 +169,7 @@ fn keys_remove(app: AppHandle, slot: String) -> Result<(), String> {
 
 /// The dock sizes itself to its content (so it never blocks clicks around it) and stays
 /// centered at the top of the screen it's on, like an island.
+#[cfg(desktop)]
 #[tauri::command]
 fn dock_fit(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
     let dock = app.get_webview_window("dock").ok_or("no dock")?;
@@ -174,6 +184,7 @@ fn dock_fit(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
 }
 
 /// Opens the main window (from the tray, the dock, a second launch or a minus:// link).
+#[cfg(desktop)]
 #[tauri::command]
 fn show_main(app: AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -183,6 +194,7 @@ fn show_main(app: AppHandle) {
     }
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 fn toggle_dock(app: AppHandle) {
     if let Some(d) = app.get_webview_window("dock") {
@@ -190,6 +202,7 @@ fn toggle_dock(app: AppHandle) {
     }
 }
 
+#[cfg(desktop)]
 fn make_dock(app: &AppHandle) -> tauri::Result<()> {
     let dock = WebviewWindowBuilder::new(app, "dock", WebviewUrl::App("dock.html".into()))
         .title("Minus")
@@ -210,6 +223,7 @@ fn make_dock(app: &AppHandle) -> tauri::Result<()> {
 
 /// Keeps a window out of screenshots and screen recordings (Windows 10 2004 and later),
 /// so agents never see the dock or the ghost cursor in what they look at.
+#[cfg(desktop)]
 fn hide_from_capture(w: &tauri::WebviewWindow) {
     #[cfg(windows)]
     if let Ok(h) = w.hwnd() {
@@ -223,6 +237,7 @@ fn hide_from_capture(w: &tauri::WebviewWindow) {
 }
 
 /// The ghost cursor: a see-through layer over the whole main screen that ignores the mouse.
+#[cfg(desktop)]
 fn make_ghost(app: &AppHandle) -> tauri::Result<()> {
     let ghost = WebviewWindowBuilder::new(app, "ghost", WebviewUrl::App("ghost.html".into()))
         .title("Minus")
@@ -250,6 +265,7 @@ fn ghost_pace(rt: tauri::State<'_, Agents>, ms: u64) {
     rt.0.set_pace(ms);
 }
 
+#[cfg(desktop)]
 fn tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Minus", true, None::<&str>)?;
     let dock = MenuItem::with_id(app, "dock", "Show or hide the dock", true, None::<&str>)?;
@@ -278,9 +294,21 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// The commands the app's pages can call.
+#[cfg(desktop)]
+fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![hands_windows, hands_look, hands_act, dock_fit, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run]
+}
+#[cfg(mobile)]
+fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![hands_windows, hands_look, hands_act, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run]
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(desktop)]
     let started_hidden = std::env::args().any(|a| a == "--hidden");
+    #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
 
     #[cfg(desktop)]
@@ -300,7 +328,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(HandsState::default())
         .manage(Teach::default())
-        .invoke_handler(tauri::generate_handler![hands_windows, hands_look, hands_act, dock_fit, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run])
+        .invoke_handler(handlers())
         .setup(move |app| {
             let handle = app.handle().clone();
             app.manage(Agents(agent::Runtime::new(app.path().app_data_dir()?.join("conversations"))));
@@ -332,12 +360,16 @@ pub fn run() {
                 make_ghost(&handle)?;
             }
 
+            #[cfg(desktop)]
             if !started_hidden {
                 show_main(handle.clone());
             }
+            let _ = &handle;
             Ok(())
         })
         .on_window_event(|w, e| {
+            let _ = (&w, &e);
+            #[cfg(desktop)]
             // closing the app window keeps Minus running (agents keep working, the dock stays)
             if let WindowEvent::CloseRequested { api, .. } = e {
                 if w.label() == "main" {
