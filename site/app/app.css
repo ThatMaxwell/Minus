@@ -335,3 +335,11 @@ html.calm *, html.calm *::before { animation-play-state: paused !important; }
 .warn-line { color: var(--amber); margin-top: 6px; }
 .pair .row-end { align-items: center; margin-top: 14px; }
 .pair [data-left] { margin-right: auto; font-variant-numeric: tabular-nums; }
+
+/* ───────── real runs: open-ended progress, notes, cost ───────── */
+.bar.flow i { background: linear-gradient(90deg, rgba(95,207,166,0), var(--mint), rgba(95,207,166,0)); background-size: 40% 100%; background-repeat: no-repeat; animation: flow 1.4s ease-in-out infinite; }
+.steps:not(.is-live) .bar.flow i { animation: none; background: var(--mint); }
+@keyframes flow { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+.st-note { margin: 0; padding: 8px 12px 0; font-size: 12.5px; color: var(--fg-2); font-style: italic; }
+.st-cost { flex: none !important; font-size: 11.5px; color: var(--fg-3); font-variant-numeric: tabular-nums; margin-right: 8px; }
+.m.sys.problem { color: var(--amber); }

@@ -7,6 +7,7 @@ import { PROVIDERS, provider } from '../data.js';
 import { VOICES, voiceOf, cap, getKey, setKey, hasKey, readMode, speak, stopSpeaking } from '../voice.js';
 import { updateAgent } from '../store.js';
 import * as acct from '../account.js';
+import * as rt from '../runtime.js';
 
 const head = (title, sub, actions = '') => `<header class="pg-h"><div><h1>${title}</h1><p class="muted">${sub}</p></div><div class="pg-act">${actions}</div></header>`;
 let off = [];
@@ -169,7 +170,7 @@ export function settings(main) {
     const pc = e.target.closest('[data-pc]');
     if (pc) {
       const pid = pc.closest('[data-p]').dataset.p, ps = providerState(pid);
-      if (ps.connected) { ps.connected = false; ps.key = ''; toast(`${provider(pid).name} disconnected`, { icon: 'x' }); }
+      if (ps.connected) { ps.connected = false; ps.key = ''; if (rt.desktop) rt.removeKey(pid); toast(`${provider(pid).name} disconnected`, { icon: 'x' }); }
       else return connect(pid, draw);
       save(); draw();
     }
@@ -261,14 +262,30 @@ export function keySheet(done = () => {}) {
   };
 }
 function connect(pid, done) {
-  const p = provider(pid);
-  const s = sheet(`<form class="mini-form"><h3>${p.icon} Connect ${p.name}</h3><p class="muted small">${p.local ? 'Minus talks to it on this computer.' : 'Paste an API key. It’s stored on this computer only.'}</p>
-    ${p.local ? '' : '<input class="field mono" type="password" name="k" placeholder="API key" required autocomplete="off" spellcheck="false">'}
+  const p = provider(pid), eng = rt.ENGINES[pid] || {}, ps = providerState(pid) || {};
+  const local = p.local, custom = eng.custom;
+  const s = sheet(`<form class="mini-form"><h3>${p.icon} Connect ${p.name}</h3>
+    <p class="muted small">${local ? 'Minus talks to Ollama on this computer. Install it from ollama.com and pull a model first.' : `Paste an API key${eng.where ? ` from <b>${esc(eng.where)}</b>` : ''}. It’s kept in this computer’s password store and only ever sent to ${esc(p.by && !custom ? p.by : 'that provider')}.`}</p>
+    ${local ? '' : `<label class="lbl" for="ck">API key</label><input id="ck" class="field mono" type="password" name="k" placeholder="${esc(eng.keyHint || 'API key')}" ${ps.connected ? '' : 'required'} autocomplete="off" spellcheck="false">`}
+    <label class="lbl" for="cm">Model</label><input id="cm" class="field mono" name="m" value="${esc(ps.modelId || eng.model || '')}" placeholder="model name" ${custom ? 'required' : ''} autocomplete="off" spellcheck="false">
+    <p class="hint-line">${pid === 'claude' ? 'Claude Opus 5.5 is the default: the best at planning work on a computer.' : 'Change it if your account uses a different model name.'}</p>
+    ${local || custom ? `<label class="lbl" for="cu">Address</label><input id="cu" class="field mono" name="u" value="${esc(ps.baseUrl || (local ? 'http://localhost:11434/v1' : ''))}" placeholder="https://…/v1" ${custom ? 'required' : ''} autocomplete="off" spellcheck="false">` : ''}
+    <p class="hint-line warn" data-err></p>
     <div class="row-end"><button type="button" class="btn btn-quiet btn-sm" data-x>Cancel</button><button class="btn btn-primary btn-sm">Connect</button></div></form>`, { cls: 'small' });
   $('[data-x]', s.el).onclick = s.close;
-  $('form', s.el).onsubmit = (e) => {
-    e.preventDefault(); const k = new FormData(e.target).get('k') || '';
-    const ps = providerState(pid); ps.connected = true; ps.key = k ? '•••• ' + String(k).slice(-4) : ''; save(); s.close(); done();
-    toast(`${p.name} connected`);
+  setTimeout(() => $('input', s.el)?.focus(), 30);
+  $('form', s.el).onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target), k = String(f.get('k') || '').trim();
+    try {
+      if (k && rt.desktop) await rt.setKey(pid, k);
+    } catch (err) { $('[data-err]', s.el).textContent = `Couldn’t save the key: ${err?.message || err}`; return; }
+    const st = providerState(pid);
+    st.connected = true;
+    if (k) st.key = '•••• ' + k.slice(-4);
+    st.modelId = String(f.get('m') || '').trim() || eng.model;
+    if (f.has('u')) st.baseUrl = String(f.get('u') || '').trim();
+    save(); s.close(); done();
+    toast(rt.desktop ? `${p.name} connected. Agents using it now work for real.` : `${p.name} connected`);
   };
 }

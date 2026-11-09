@@ -3,7 +3,11 @@
 //! Minus starts with the computer (hidden, with just the dock), so your phone can reach your
 //! agents without you opening anything. Closing the window keeps Minus running in the tray.
 
+mod keys;
+
 use hands::{ActResult, Action, Hands, SnapshotOptions, Target, WindowInfo};
+use serde::Deserialize;
+use std::sync::Arc;
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -53,6 +57,70 @@ async fn hands_look(state: tauri::State<'_, HandsState>, target: Option<Target>)
 async fn hands_act(state: tauri::State<'_, HandsState>, actions: Vec<Action>) -> Result<Vec<ActResult>, String> {
     let h = state.get()?;
     tauri::async_runtime::spawn_blocking(move || h.act(actions, false).map_err(|e| e.to_string())).await.map_err(|e| e.to_string())?
+}
+
+/* ───────── agents: the real runtime (see crates/agent) ───────── */
+
+struct Agents(agent::Runtime);
+
+#[derive(Deserialize)]
+struct BrainIn {
+    /// anthropic, openai, gemini, grok, openrouter, ollama, custom
+    provider: String,
+    /// which saved key to use (the provider's id in Settings)
+    slot: String,
+    model: String,
+    effort: Option<String>,
+    base_url: Option<String>,
+}
+
+fn data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path().app_data_dir().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn agent_run(app: AppHandle, rt: tauri::State<'_, Agents>, spec: agent::AgentSpec, brain: BrainIn, text: String) -> Result<(), String> {
+    if rt.0.is_running(&spec.id) {
+        return Err(format!("{} is already working. Stop it first, or wait.", spec.name));
+    }
+    let key = keys::get(&data_dir(&app)?, &brain.slot).unwrap_or_default();
+    if key.is_empty() && brain.provider != "ollama" {
+        return Err("This agent's AI isn't connected yet. Add a key in Settings → Your AI.".into());
+    }
+    let id = spec.id.clone();
+    let app2 = app.clone();
+    let emit: Arc<dyn Fn(agent::Event) + Send + Sync> = Arc::new(move |e| {
+        let _ = app2.emit("agent-event", serde_json::json!({ "agent": id, "event": e }));
+    });
+    rt.0.start(spec, agent::Brain { provider: brain.provider, model: brain.model, key, effort: brain.effort, base_url: brain.base_url }, text, emit);
+    Ok(())
+}
+
+#[tauri::command]
+fn agent_reply(rt: tauri::State<'_, Agents>, call: String, answer: String) -> bool {
+    rt.0.reply(&call, answer)
+}
+#[tauri::command]
+fn agent_stop(rt: tauri::State<'_, Agents>, agent: String) {
+    rt.0.stop(&agent);
+}
+#[tauri::command]
+fn agent_forget(rt: tauri::State<'_, Agents>, agent: String) {
+    rt.0.forget(&agent);
+}
+
+#[tauri::command]
+fn keys_list(app: AppHandle) -> Result<Vec<String>, String> {
+    Ok(keys::list(&data_dir(&app)?))
+}
+#[tauri::command]
+fn keys_set(app: AppHandle, slot: String, key: String) -> Result<(), String> {
+    keys::set(&data_dir(&app)?, &slot, key.trim())
+}
+#[tauri::command]
+fn keys_remove(app: AppHandle, slot: String) -> Result<(), String> {
+    keys::remove(&data_dir(&app)?, &slot);
+    Ok(())
 }
 
 /// The dock sizes itself to its content (so it never blocks clicks around it) and stays
@@ -154,9 +222,10 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .manage(HandsState::default())
-        .invoke_handler(tauri::generate_handler![hands_windows, hands_look, hands_act, dock_fit, show_main, toggle_dock])
+        .invoke_handler(tauri::generate_handler![hands_windows, hands_look, hands_act, dock_fit, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove])
         .setup(move |app| {
             let handle = app.handle().clone();
+            app.manage(Agents(agent::Runtime::new(app.path().app_data_dir()?.join("conversations"))));
 
             #[cfg(desktop)]
             {

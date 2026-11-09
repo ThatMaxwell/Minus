@@ -12,6 +12,7 @@ import { openCreate } from './views/create.js';
 import { autoRead, stopSpeaking, speaking } from './voice.js';
 import { startBridge } from './bridge.js';
 import * as account from './account.js';
+import * as runtime from './runtime.js';
 
 const tauri = window.__TAURI__;
 
@@ -71,6 +72,7 @@ function shortcuts() {
 tooltips();
 startBridge();
 account.start();
+runtime.listen();
 idleWatch(90000);
 autoRead((e) => import('./ui.js').then(({ toast }) => toast(e.human || 'Voice didn’t work this time.', { icon: 'speaker' })));
 keepNames();

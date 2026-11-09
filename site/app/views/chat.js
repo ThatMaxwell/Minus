@@ -8,6 +8,7 @@ import { ComputerSim } from '../../js/computer.js';
 import { openCreate } from './create.js';
 import { Listener, transcribe, hasKey, heardYou, speak, stopSpeaking, speaking, VoiceError } from '../voice.js';
 import { keySheet } from './pages.js';
+import * as rt from '../runtime.js';
 
 let off = [];
 // stop listening to the store when another page takes over (the router calls this)
@@ -225,6 +226,7 @@ export function chat(main) {
     if (act === 'computer') return menu(b, state.computers.map((c) => ({ label: c.name + (c.id === a.computer ? '  ✓' : ''), icon: c.kind === 'local' ? 'laptop' : 'cloud', run: () => { updateAgent(a.id, { computer: c.id }); toast(`${a.name} moved to ${c.name}`); react(a.id, c.kind === 'local' ? 'peek' : 'yes'); chat(main); } })));
     if (act === 'look') return openCreate({ edit: a.id, step: 0 });
     if (act === 'pause') {
+      if (rt.running(a.id)) { rt.stop(a.id); toast(`${a.name} will stop after this step`, { icon: 'pause' }); return; }
       const paused = a.status === 'paused';
       updateAgent(a.id, paused ? { status: 'idle', statusText: 'Ready' } : { status: 'paused', statusText: 'Paused' });
       react(a.id, paused ? 'wake' : 'sleep'); toast(paused ? `${a.name} is back` : `${a.name} is paused`, { icon: paused ? 'play' : 'pause' });
@@ -255,6 +257,7 @@ export function msgHTML(a, m, prev, cont) {
   const mid = esc(m.mid || m.id || '');
   const sameRun = cont ?? (prev && prev.from === m.from && prev.kind !== 'day' && m.from === 'agent');
   if (m.kind === 'day') return `<div class="day" data-mid="${mid}"><span>${esc(m.text)}</span></div>`;
+  if (m.kind === 'problem') return `<div class="m sys problem" data-mid="${mid}">${icon('x')}<span>${esc(m.text)}</span></div>`;
   if (m.from === 'system' || m.kind === 'handoff') return `<div class="m sys" data-mid="${mid}">${icon('handoff')}<span>${esc(m.text)}</span></div>`;
   if (m.from === 'me') return `<div class="m me ${m.via === 'voice' ? 'said' : ''}" data-mid="${mid}">${m.via === 'voice' ? `<span class="said-ic" data-tip="You said this out loud">${icon('mic')}</span>` : ''}<p>${esc(m.text)}</p></div>`;
   const head = sameRun ? '<span class="gutter"></span>' : face(a, 26);
@@ -262,10 +265,13 @@ export function msgHTML(a, m, prev, cont) {
   let body = '';
   if (m.kind === 'steps') {
     const pct = m.total ? Math.round((m.done / m.total) * 100) : 0;
+    const count = m.total ? `${m.done || 0}/${m.total}` : `${m.done || 0} step${m.done === 1 ? '' : 's'}`;
+    const price = m.cost != null ? `<span class="st-cost" data-tip="What this job cost on your own API key so far">${m.cost < 0.01 ? '<$0.01' : '$' + m.cost.toFixed(2)}</span>` : '';
     body = `<div class="card steps ${m.live ? 'is-live' : ''}">
-      <div class="card-h">${icon('monitor')}<span>${esc(m.title)}</span><b>${m.done || 0}/${m.total || 0}</b></div>
-      <div class="bar"><i style="width:${pct}%"></i></div>
-      <div class="st-list">${(m.steps || []).map((s, i, arr) => `<div class="st ${i === arr.length - 1 && m.live ? 'run' : 'done'}"><span class="ic">${i === arr.length - 1 && m.live ? '<i class="spin"></i>' : icon('check')}</span>${esc(s)}</div>`).join('') || '<div class="st run"><span class="ic"><i class="spin"></i></span>Starting…</div>'}</div>
+      <div class="card-h">${icon('monitor')}<span>${esc(m.title)}</span>${price}<b>${count}</b></div>
+      <div class="bar ${m.total ? '' : 'flow'}"><i style="width:${m.total ? pct : 100}%"></i></div>
+      ${m.note && m.live ? `<p class="st-note">${esc(m.note)}</p>` : ''}
+      <div class="st-list">${(m.steps || []).map((s, i, arr) => `<div class="st ${i === arr.length - 1 && m.live ? 'run' : 'done'}"><span class="ic">${i === arr.length - 1 && m.live ? '<i class="spin"></i>' : icon('check')}</span>${esc(s)}</div>`).join('') || (m.live ? '<div class="st run"><span class="ic"><i class="spin"></i></span>Starting…</div>' : '')}</div>
     </div>`;
   } else if (m.kind === 'question') {
     body = `<div class="card q-card ${m.answered ? 'done' : ''}">

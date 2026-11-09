@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/hands", "crates/hands-cli", "apps/desktop/src-tauri"]
+members = ["crates/hands", "crates/hands-cli", "apps/desktop/src-tauri", "crates/agent"]
 
 [profile.release]
 lto = "thin"

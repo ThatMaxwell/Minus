@@ -3,6 +3,7 @@
 // real runtime; the messages it posts have the same shapes.
 import { state, agent, computer, post, patchMessage, updateAgent, emit, id, save } from './store.js';
 import { react } from './director.js';
+import * as rt from './runtime.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const busy = new Set();
@@ -38,6 +39,9 @@ const plan = (text) => {
 export async function respond(aid, text) {
   const a = agent(aid); if (!a) return;
   if (answer(aid, text.trim())) return;
+  // the real runtime, when this agent's AI is connected (desktop app)
+  if (rt.answer(aid, text.trim())) return;
+  if (rt.ready(a)) return rt.run(aid, text);
   if (busy.has(aid)) return;
   busy.add(aid);
   const prevStatus = a.status;
@@ -68,6 +72,7 @@ export async function respond(aid, text) {
 
 export async function choose(aid, mid, choice) {
   const m = (state.threads[aid] || []).find((x) => x.mid === mid);
+  if (m?.call) { patchMessage(aid, mid, { chosen: choice }); post(aid, { from: 'me', text: choice }); rt.reply(aid, m, choice); react(aid, 'yes'); return; }
   if (m) patchMessage(aid, mid, { chosen: choice });
   post(aid, { from: 'me', text: choice });
   if (choice === 'Start now' || choice === 'Look it up') return work(aid, m?.about || 'look it up');
@@ -132,8 +137,10 @@ export async function ask(aid, text) {
 }
 
 export async function resolve(aid, mid, decision) {
+  const m = (state.threads[aid] || []).find((x) => x.mid === mid || x.id === mid);
   patchMessage(aid, mid, { state: decision });
   emit('approvals');
+  if (m?.call) { react(aid, decision === 'approved' ? 'approved' : 'rejected'); rt.reply(aid, m, decision); return; }
   if (decision === 'approved') {
     react(aid, 'approved');
     updateAgent(aid, { status: 'working', statusText: 'Doing it now' });
