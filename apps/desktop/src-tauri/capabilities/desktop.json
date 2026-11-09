@@ -1,7 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop",
-  "windows": ["main", "dock"],
-  "permissions": ["autostart:default"],
-  "platforms": ["windows", "macOS", "linux"]
+  "windows": [
+    "main",
+    "dock",
+    "ghost"
+  ],
+  "permissions": [
+    "autostart:default"
+  ],
+  "platforms": [
+    "windows",
+    "macOS",
+    "linux"
+  ]
 }

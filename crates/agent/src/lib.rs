@@ -40,6 +40,12 @@ pub enum Event {
     Stopped,
     Error { message: String },
     Usage { input: u64, output: u64, cache_read: u64 },
+    /// Where on the screen it's about to act (screen pixels), for the ghost cursor.
+    Point { x: i32, y: i32, w: i32, h: i32, action: String, text: Option<String> },
+    /// It's reading this window.
+    Scan { x: i32, y: i32, w: i32, h: i32 },
+    /// It wrote something in its notebook.
+    Remember { text: String },
 }
 
 /// Who the agent is and what it may do.
@@ -185,6 +191,11 @@ impl Runtime {
                 let _ = tx.send("__stopped__".into());
             }
         }
+    }
+
+    /// How long to pause before each action so people can follow the ghost cursor (0 = full speed).
+    pub fn set_pace(&self, ms: u64) {
+        tools::PACE_MS.store(ms.min(2000), Ordering::Relaxed);
     }
 
     /// Starts over with an empty conversation.
@@ -345,6 +356,12 @@ impl Runtime {
                 emit(Event::Message { text: s("text").unwrap_or_default() });
                 ok(json!("sent"))
             }
+            "remember" => {
+                let t = s("note").unwrap_or_default();
+                if t.trim().is_empty() { return err("nothing to remember".into()); }
+                emit(Event::Remember { text: t });
+                ok(json!("saved in your notebook; you'll see it with your next jobs"))
+            }
             name => {
                 let h = match hands {
                     Ok(h) => h.clone(),
@@ -361,7 +378,7 @@ impl Runtime {
                         };
                     }
                     let out = match name.as_str() {
-                        "look" => sc.look(&h, input.get("window").and_then(|w| w.as_str())),
+                        "look" => sc.look(&h, input.get("window").and_then(|w| w.as_str()), &step),
                         "windows" => sc.windows(&h),
                         "act" => sc.act(&h, &input, &step),
                         other => Outcome::Error(format!("there's no tool called {other}")),

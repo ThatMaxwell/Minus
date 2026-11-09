@@ -9,6 +9,7 @@ import { openCreate } from './create.js';
 import { Listener, transcribe, hasKey, heardYou, speak, stopSpeaking, speaking, VoiceError } from '../voice.js';
 import { keySheet } from './pages.js';
 import * as rt from '../runtime.js';
+import * as nb from '../notebook.js';
 
 let off = [];
 // stop listening to the store when another page takes over (the router calls this)
@@ -29,6 +30,7 @@ export function chat(main) {
           <button class="chip" data-act="model" data-tip="Which AI ${esc(a.name)} thinks with">${prov.icon}<span>${esc(prov.name)}</span>${icon('chevron', 'rot')}</button>
           <button class="chip" data-act="computer" data-tip="Which computer ${esc(a.name)} works on">${icon(comp?.kind === 'local' ? 'laptop' : 'cloud')}<span>${esc(comp?.name || 'No computer')}</span>${icon('chevron', 'rot')}</button>
           <span class="sep"></span>
+          <button class="icon-btn nb-btn" data-act="notebook" data-tip="${esc(a.name)}’s notebook: what it has learned">${icon('book')}<span class="nb-count" ${nb.count(a) ? '' : 'hidden'}>${nb.count(a)}</span></button>
           <button class="icon-btn" data-act="look" data-tip="Change how ${esc(a.name)} looks">${icon('sparkle')}</button>
           <button class="icon-btn" data-act="pause" data-tip="${a.status === 'paused' ? 'Resume' : 'Pause'} ${esc(a.name)}">${icon(a.status === 'paused' ? 'play' : 'pause')}</button>
           <button class="icon-btn ${state.panel ? 'on' : ''}" data-act="panel" data-tip="${state.panel ? 'Hide' : 'Show'} the computer|mod .">${icon('panel')}</button>
@@ -194,6 +196,13 @@ export function chat(main) {
     const m = (state.threads[a.id] || []).find((x) => x.mid === mid);
     if (m) speak(a.id, m.text, { mid }).catch((err) => toast(err.human || 'Voice didn’t work this time.', { icon: 'speaker' }));
   });
+  // when it learns something, a note flies into its notebook
+  off.push(on('remember', ({ agent: aid, note }) => {
+    if (aid !== a.id) return;
+    nb.fly(main, a.id, note.text);
+    const c = $('.nb-count', main); if (c) { c.hidden = false; c.textContent = nb.count(agent(a.id)); }
+    if (note.by !== 'you') react(a.id, 'proud');
+  }));
   off.push(on('speaking', ({ agent: aid, mid, on: isOn, loading }) => {
     if (aid !== a.id || !mid) return;
     const node = $(`[data-mid="${CSS.escape(mid)}"]`, thread); if (!node) return;
@@ -248,6 +257,7 @@ export function chat(main) {
     if (act === 'giveback') { driving = false; $('.pcp-yours', main).hidden = true; react(a.id, 'giveback'); syncSim(); toast(`${a.name} has the computer again`, { icon: 'hand' }); }
     if (act === 'attach') toast('Drop files here, or paste a screenshot', { icon: 'paperclip' });
     if (act === 'mic') return talk();
+    if (act === 'notebook') return nb.open(main, a.id);
   };
   // the agent glances at whatever header button you point at
   $('.ch-tools', main).addEventListener('pointerover', (e) => { const b = e.target.closest('button'); if (b) mascotsOf(a.id).forEach((m) => main.contains(m.canvas) && $('.ch-h', main).contains(m.canvas) && m.lookAtEl(b, 1.5)); });

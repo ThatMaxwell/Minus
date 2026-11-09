@@ -5,6 +5,7 @@
 import { state, agent, computer, post, patchMessage, updateAgent, emit, providerState } from './store.js';
 import { react } from './director.js';
 import { PERMISSIONS } from './data.js';
+import * as nb from './notebook.js';
 
 const tauri = window.__TAURI__;
 export const desktop = !!tauri;
@@ -48,13 +49,15 @@ const asking = new Map(); // agent -> { call, mid }
 export async function run(aid, text) {
   const a = agent(aid), eng = ENGINES[a.model], ps = providerState(a.model) || {};
   const spec = {
-    id: a.id, name: a.name, role: a.role || '', instructions: [a.instructions, notebookText(a)].filter(Boolean).join('\n\n'),
+    id: a.id, name: a.name, role: a.role || '', instructions: a.instructions || '',
     computer: computer(a.computer)?.name || 'this computer',
     perms: PERMISSIONS.map((p) => [p.name, a.perms?.[p.id] || 'ask']),
   };
   const brain = { provider: eng.provider, slot: a.model, model: ps.modelId || eng.model, effort: a.effort || 'medium', base_url: ps.baseUrl || null };
   try {
-    await tauri.core.invoke('agent_run', { spec, brain, text });
+    // the notebook goes with the job (not into the standing instructions, which stay cached)
+    const notes = nb.asText(a);
+    await tauri.core.invoke('agent_run', { spec, brain, text: notes ? `${text}\n\n${notes}` : text });
   } catch (e) {
     post(aid, { from: 'agent', text: String(e?.message || e) });
     updateAgent(aid, { status: 'idle', statusText: 'Ready' });
@@ -62,11 +65,6 @@ export async function run(aid, text) {
   }
 }
 
-// What the agent knows about you and its job (its notebook), handed over with each job.
-function notebookText(a) {
-  const notes = (a.notebook || []).filter((n) => n.text?.trim());
-  return notes.length ? `Your notebook (things you've learned; keep using them):\n${notes.map((n) => `- ${n.text.trim()}`).join('\n')}` : '';
-}
 
 export function stop(aid) { tauri?.core.invoke('agent_stop', { agent: aid }); }
 export function forget(aid) { tauri?.core.invoke('agent_forget', { agent: aid }); }
@@ -141,6 +139,9 @@ export function listen() {
         break;
       case 'message':
         post(aid, { from: 'agent', text: e.text });
+        break;
+      case 'remember':
+        nb.add(aid, e.text, 'agent');
         break;
       case 'usage':
         if (cur) {

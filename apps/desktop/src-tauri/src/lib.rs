@@ -169,8 +169,50 @@ fn make_dock(app: &AppHandle) -> tauri::Result<()> {
         .focused(false)
         .visible(false)
         .build()?;
-    let _ = dock;
+    hide_from_capture(&dock);
     Ok(())
+}
+
+/// Keeps a window out of screenshots and screen recordings (Windows 10 2004 and later),
+/// so agents never see the dock or the ghost cursor in what they look at.
+fn hide_from_capture(w: &tauri::WebviewWindow) {
+    #[cfg(windows)]
+    if let Ok(h) = w.hwnd() {
+        use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE};
+        let hwnd = windows::Win32::Foundation::HWND(h.0 as *mut _);
+        unsafe {
+            let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        }
+    }
+    let _ = w;
+}
+
+/// The ghost cursor: a see-through layer over the whole main screen that ignores the mouse.
+fn make_ghost(app: &AppHandle) -> tauri::Result<()> {
+    let ghost = WebviewWindowBuilder::new(app, "ghost", WebviewUrl::App("ghost.html".into()))
+        .title("Minus")
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .visible_on_all_workspaces(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .focused(false)
+        .visible(false)
+        .build()?;
+    if let Some(m) = ghost.primary_monitor()? {
+        ghost.set_position(*m.position())?;
+        ghost.set_size(*m.size())?;
+    }
+    ghost.set_ignore_cursor_events(true)?;
+    hide_from_capture(&ghost);
+    Ok(())
+}
+
+#[tauri::command]
+fn ghost_pace(rt: tauri::State<'_, Agents>, ms: u64) {
+    rt.0.set_pace(ms);
 }
 
 fn tray(app: &AppHandle) -> tauri::Result<()> {
@@ -222,7 +264,7 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .manage(HandsState::default())
-        .invoke_handler(tauri::generate_handler![hands_windows, hands_look, hands_act, dock_fit, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove])
+        .invoke_handler(tauri::generate_handler![hands_windows, hands_look, hands_act, dock_fit, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace])
         .setup(move |app| {
             let handle = app.handle().clone();
             app.manage(Agents(agent::Runtime::new(app.path().app_data_dir()?.join("conversations"))));
@@ -251,6 +293,7 @@ pub fn run() {
 
                 tray(&handle)?;
                 make_dock(&handle)?;
+                make_ghost(&handle)?;
             }
 
             if !started_hidden {

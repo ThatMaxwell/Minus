@@ -41,6 +41,7 @@ const P = {
   laptop: '<rect x="4.5" y="5" width="11" height="7.5" rx="1.2"/><path d="M2.5 15h15"/>',
   trash: '<path d="M4.5 6h11M8 6V4.5h4V6M6 6l.7 9.5h6.6L14 6"/>',
   copy: '<rect x="7" y="7" width="9" height="9" rx="1.8"/><path d="M13 7V5.5A1.5 1.5 0 0011.5 4h-6A1.5 1.5 0 004 5.5v6A1.5 1.5 0 005.5 13H7"/>',
+  book: '<path d="M4.5 4.5A1.5 1.5 0 016 3h9.5v12H6a1.5 1.5 0 00-1.5 1.5z"/><path d="M4.5 16.5A1.5 1.5 0 006 18h9.5v-3M7.5 6.5h5M7.5 9h3.5"/>',
   edit: '<path d="M12.5 4.5l3 3-8.5 8.5H4v-3z"/>',
   bolt: '<path d="M11 3.5L5.5 11H10l-1 5.5L14.5 9H10z"/>',
   routine: '<path d="M4 10a6 6 0 0110.4-4M16 10a6 6 0 01-10.4 4"/><path d="M14.5 3v3.2h-3.2M5.5 17v-3.2h3.2"/>',

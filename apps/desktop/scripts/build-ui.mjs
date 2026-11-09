@@ -21,5 +21,5 @@ for (const dir of ['app', 'js', 'vendor']) {
 }
 const app = readFileSync(join(site, 'test.html'), 'utf8').replace('<meta name="robots" content="noindex, nofollow" />', '');
 writeFileSync(join(dist, 'index.html'), app);
-cpSync(join(site, 'dock.html'), join(dist, 'dock.html'));
+for (const f of ['dock.html', 'ghost.html']) cpSync(join(site, f), join(dist, f));
 console.log('ui → dist/');

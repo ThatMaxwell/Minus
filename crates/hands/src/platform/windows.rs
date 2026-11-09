@@ -93,7 +93,11 @@ impl Uia {
         match target {
             Target::Focused => {
                 let h = unsafe { GetForegroundWindow() };
-                if h.0.is_null() { Err(HandsError::NoWindow("the focused window".into())) } else { Ok(h) }
+                // if Minus itself is in front (you just sent the job), use the window behind it
+                if !h.0.is_null() && !is_own(h) {
+                    return Ok(h);
+                }
+                list_windows().into_iter().next().map(|w| HWND(w.handle as usize as *mut _)).ok_or_else(|| HandsError::NoWindow("the focused window".into()))
             }
             Target::Handle(h) => Ok(HWND(*h as usize as *mut _)),
             Target::Title(t) => {
@@ -476,9 +480,16 @@ fn list_windows() -> Vec<WindowInfo> {
     hwnds.into_iter().filter_map(window_info).collect()
 }
 
+/// Windows of this process (Minus's own window, dock and ghost cursor) are never targets.
+fn is_own(h: HWND) -> bool {
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
+    pid == std::process::id()
+}
+
 fn window_info(h: HWND) -> Option<WindowInfo> {
     unsafe {
-        if !IsWindowVisible(h).as_bool() {
+        if !IsWindowVisible(h).as_bool() || is_own(h) {
             return None;
         }
         let ex = GetWindowLongW(h, GWL_EXSTYLE) as u32;

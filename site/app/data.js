@@ -56,13 +56,18 @@ export const COMPUTERS = [
 ];
 
 const now = Date.now(), min = 60e3, hr = 3600e3;
+const note = (text, daysAgo, by = 'agent') => ({ id: 'note-' + text.length + '-' + daysAgo, text, at: Date.now() - daysAgo * 86400000, by });
+
 export const SEED_AGENTS = [
   { id: 'scout', name: 'Scout', role: 'Research', color: COLORS.mint, emotion: 'happy', outfit: { head: 'cap' }, model: 'claude', computer: 'cloud-1',
-    instructions: 'Find and qualify leads. Keep the CRM tidy.', status: 'working', statusText: 'Adding webinar leads', perms: { ...DEFAULT_PERMS } },
+    instructions: 'Find and qualify leads. Keep the CRM tidy.', status: 'working', statusText: 'Adding webinar leads', perms: { ...DEFAULT_PERMS },
+    notebook: [note('Skip anyone whose email ends in .edu: they’re students, not buyers.', 1), note('The CRM is crm.acme.example. Duplicates are checked by email, not by name.', 3), note('Max likes a one-line summary at the end, not a report.', 6, 'you')] },
   { id: 'inbox', name: 'Inbox', role: 'Email', color: COLORS.violet, emotion: 'neutral', outfit: { head: 'headset' }, model: 'chatgpt', computer: 'cloud-2',
-    instructions: 'Keep my inbox at zero. Draft replies in my voice. Ask before sending.', status: 'waiting', statusText: 'Waiting for your OK', unread: 1, perms: { ...DEFAULT_PERMS } },
+    instructions: 'Keep my inbox at zero. Draft replies in my voice. Ask before sending.', status: 'waiting', statusText: 'Waiting for your OK', unread: 1, perms: { ...DEFAULT_PERMS },
+    notebook: [note('Sign emails “Max”, never “Best regards”.', 2, 'you'), note('Newsletters get archived, never answered.', 4), note('Anything from the bank goes to Ledger.', 9)] },
   { id: 'ledger', name: 'Ledger', role: 'Finance', color: COLORS.amber, emotion: 'suspicious', outfit: { head: 'top hat', neck: 'bow tie' }, model: 'gemini', computer: 'cloud-2',
-    instructions: 'Match receipts to card charges and file expense reports monthly.', status: 'idle', statusText: 'Matched 214 receipts', perms: { ...DEFAULT_PERMS } },
+    instructions: 'Match receipts to card charges and file expense reports monthly.', status: 'idle', statusText: 'Matched 214 receipts', perms: { ...DEFAULT_PERMS },
+    notebook: [note('The company card ends in 4421.', 5), note('Receipts under $25 don’t need a photo.', 12, 'you')] },
   { id: 'patch', name: 'Patch', role: 'Engineering', color: COLORS.sky, emotion: 'focused', outfit: { head: 'hard hat' }, model: 'claude', computer: 'laptop',
     instructions: 'Reproduce bug reports on a clean machine and open issues with steps.', status: 'done', statusText: 'Reproduced the login bug', perms: { ...DEFAULT_PERMS } },
   { id: 'atlas', name: 'Atlas', role: 'Operations', color: COLORS.coral, emotion: 'sleepy', outfit: { head: 'beanie', neck: 'scarf' }, model: 'ollama', computer: 'cloud-1',

@@ -4,7 +4,11 @@ use crate::Event;
 use hands::{render, render_diff, Action, Hands, MouseButton, Shot, Snapshot, SnapshotOptions, Target};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+
+/// Pause before each action so the ghost cursor can be followed (milliseconds).
+pub static PACE_MS: AtomicU64 = AtomicU64::new(140);
 
 /// Our own tools, as JSON Schema. Declared once at the start of a conversation and never
 /// changed, so the prompt cache and the model's earlier reasoning stay valid.
@@ -53,6 +57,11 @@ pub fn custom_tools() -> Vec<Value> {
                 "action": {"type": "string", "description": "What you're about to do, short, e.g. \"Send 36 welcome emails\""},
                 "details": {"type": "string", "description": "Who or what it affects, e.g. \"To the webinar leads, from your Gmail\""}
             }, "required": ["action"]}
+        }),
+        json!({
+            "name": "remember",
+            "description": "Write something in your notebook so you know it in future jobs: a preference the person told you, how their apps or accounts are set up, a shortcut that worked. One clear fact per note. The person can read and edit your notebook.",
+            "input_schema": {"type": "object", "properties": {"note": {"type": "string"}}, "required": ["note"]}
         }),
         json!({
             "name": "message_user",
@@ -124,9 +133,13 @@ impl Screen {
         target_of(w).or(self.current.map(Target::Handle)).unwrap_or(Target::Focused)
     }
 
-    pub fn look(&mut self, hands: &Hands, window: Option<&str>) -> Outcome {
+    pub fn look(&mut self, hands: &Hands, window: Option<&str>, step: &dyn Fn(Event)) -> Outcome {
         match hands.snapshot(self.target(window), SnapshotOptions::default()) {
-            Ok(s) => Outcome::Text(render(self.remember(s))),
+            Ok(s) => {
+                let b = s.window.bounds;
+                step(Event::Scan { x: b.x, y: b.y, w: b.w, h: b.h });
+                Outcome::Text(render(self.remember(s)))
+            }
             Err(e) => Outcome::Error(e.to_string()),
         }
     }
@@ -153,7 +166,7 @@ impl Screen {
         let handle = before.window.handle;
         let prev = self.looks.get(&handle).cloned();
         let names = prev.as_ref().unwrap_or(&before);
-        let mut actions = Vec::new();
+        let mut actions: Vec<(Action, String, Option<Event>)> = Vec::new();
         let mut needs_front = false;
         for s in &inp.actions {
             let id = || s.id.ok_or_else(|| format!("\"{}\" needs an element id", s.what));
@@ -177,21 +190,40 @@ impl Screen {
             };
             match a {
                 Ok(a) => {
-                    step(Event::Step { text: describe(&a, names) });
-                    actions.push(a);
+                    let point = point_of(&a, names);
+                    actions.push((a.clone(), describe(&a, names), point));
                 }
                 Err(e) => return Outcome::Error(e),
             }
         }
         // typing goes to the window in front, so bring this one forward first
         if needs_front && !before.window.focused {
-            actions.insert(0, Action::Activate { target: Target::Handle(handle) });
-            actions.insert(1, Action::Wait { ms: 150 });
+            if let Err(e) = hands.act(vec![Action::Activate { target: Target::Handle(handle) }, Action::Wait { ms: 150 }], false) {
+                return Outcome::Error(e.to_string());
+            }
         }
-        let results = match hands.act(actions, false) {
-            Ok(r) => r,
-            Err(e) => return Outcome::Error(e.to_string()),
-        };
+        // one at a time, so the ghost cursor can show each one where it happens
+        let pace = PACE_MS.load(Ordering::Relaxed);
+        let mut results = Vec::new();
+        for (a, text, point) in actions {
+            step(Event::Step { text });
+            if let Some(p) = point {
+                step(p);
+                if pace > 0 {
+                    std::thread::sleep(Duration::from_millis(pace));
+                }
+            }
+            match hands.act(vec![a], false) {
+                Ok(mut r) => {
+                    let failed = r.iter().any(|r| !r.ok);
+                    results.append(&mut r);
+                    if failed {
+                        break;
+                    }
+                }
+                Err(e) => return Outcome::Error(e.to_string()),
+            }
+        }
         std::thread::sleep(Duration::from_millis(350));
         let mut out = String::new();
         if let Some((i, r)) = results.iter().enumerate().find(|(_, r)| !r.ok) {
@@ -208,6 +240,32 @@ impl Screen {
         }
         Outcome::Text(out)
     }
+}
+
+/// Where an action lands on screen, for the ghost cursor.
+fn point_of(a: &Action, s: &Snapshot) -> Option<Event> {
+    let (id, action, text) = match a {
+        Action::Click { id, .. } => (*id, "click", None),
+        Action::Fill { id, text } => (*id, "type", Some(text.clone())),
+        Action::Focus { id } => (*id, "focus", None),
+        Action::Toggle { id } => (*id, "click", None),
+        Action::Expand { id } | Action::Collapse { id } | Action::Select { id } => (*id, "click", None),
+        Action::Scroll { id: Some(id), .. } => (*id, "scroll", None),
+        Action::Type { text } => {
+            let f = s.elements.iter().find(|e| e.focused)?;
+            return Some(Event::Point { x: f.bounds.x, y: f.bounds.y, w: f.bounds.w, h: f.bounds.h, action: "type".into(), text: Some(text.clone()) });
+        }
+        Action::Key { keys, .. } => {
+            let f = s.elements.iter().find(|e| e.focused)?;
+            return Some(Event::Point { x: f.bounds.x, y: f.bounds.y, w: f.bounds.w, h: f.bounds.h, action: "key".into(), text: Some(keys.clone()) });
+        }
+        _ => return None,
+    };
+    let e = s.elements.iter().find(|e| e.id == id)?;
+    if e.bounds.is_empty() {
+        return None;
+    }
+    Some(Event::Point { x: e.bounds.x, y: e.bounds.y, w: e.bounds.w, h: e.bounds.h, action: action.into(), text })
 }
 
 fn describe(a: &Action, s: &Snapshot) -> String {
@@ -278,6 +336,7 @@ pub fn computer(hands: &Hands, screen: &mut Screen, name: &str, input: &Value, s
                 (*nums.first().unwrap_or(&0), *nums.get(1).unwrap_or(&0))
             }
         };
+        step(Event::Point { x, y, w: 0, h: 0, action: "click".into(), text: None });
         step(Event::Step { text: format!("{} on the screen", match (button, count) { (MouseButton::Right, _) => "Right-click", (_, 2) => "Double-click", (_, 3) => "Triple-click", _ => "Click" }) });
         run(vec![Action::ClickAt { x, y, button, count, mods: mods.clone() }])
     };
@@ -292,6 +351,7 @@ pub fn computer(hands: &Hands, screen: &mut Screen, name: &str, input: &Value, s
         "left_click_drag" => {
             let from = input.get("start_coordinate").and_then(|c| pt(screen, c)).ok_or("start_coordinate is missing")?;
             let to = input.get("coordinate").and_then(|c| pt(screen, c)).ok_or("coordinate is missing")?;
+            step(Event::Point { x: to.0, y: to.1, w: 0, h: 0, action: "drag".into(), text: None });
             step(Event::Step { text: "Drag on the screen".into() });
             run(vec![Action::Drag { from: [from.0, from.1], to: [to.0, to.1], mods }])
         }

@@ -4,6 +4,7 @@
 import { state, agent, computer, post, patchMessage, updateAgent, emit, id, save } from './store.js';
 import { react } from './director.js';
 import * as rt from './runtime.js';
+import * as nb from './notebook.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const busy = new Set();
@@ -53,6 +54,16 @@ export async function respond(aid, text) {
   busy.delete(aid);
 
   const t = text.trim();
+  // "remember …" goes in its notebook
+  const mem = t.match(/^(?:please\s+)?(?:remember|note|keep in mind)(?: that)?[:,]?\s+(.+)/i);
+  if (mem) {
+    const fact = mem[1].replace(/^\w/, (c) => c.toUpperCase()).replace(/([^.!?])$/, '$1.');
+    nb.add(aid, fact, 'agent');
+    post(aid, { from: 'agent', text: 'Got it, it’s in my notebook. I’ll keep it in mind on every job.' });
+    updateAgent(aid, { status: prevStatus === 'working' ? 'working' : 'idle', statusText: 'Ready' });
+    react(aid, 'proud');
+    return;
+  }
   if (/^(hi|hey|hello|yo|sup|hola)\b/i.test(t)) {
     post(aid, { from: 'agent', text: `Hi! I’m ${a.name}. ${a.instructions ? 'I’m set up to: ' + a.instructions : 'Give me a job and I’ll get going.'} What should I start with?` });
     updateAgent(aid, { status: prevStatus === 'working' ? 'idle' : prevStatus, statusText: 'Ready' });
@@ -105,7 +116,8 @@ export async function work(aid, text) {
     // some jobs need a detail only you know: ask, wait, carry on
     if (i === 3 && /crm|lead/i.test(text)) {
       const tag = await question(aid, 'Quick one: what tag should these leads get in the CRM?', 'e.g. Webinar Nov 9');
-      post(aid, { from: 'agent', text: `Got it. I’ll tag them “${tag}”.` });
+      post(aid, { from: 'agent', text: `Got it. I’ll tag them “${tag}”, and I’ve put that in my notebook for next time.` });
+      nb.add(aid, `Webinar leads get the tag “${tag}” in the CRM.`, 'agent');
       updateAgent(aid, { status: 'working', statusText: steps[i] });
       react(aid, 'yes');
       await wait(600);
