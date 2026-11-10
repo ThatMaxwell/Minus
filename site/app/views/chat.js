@@ -19,7 +19,14 @@ export const leaveChat = () => { off.forEach((f) => f()); off = []; };
 export function chat(main) {
   leaveChat();
   const a = agent(state.route.agent);
-  if (!a) { main.innerHTML = `<div class="empty"><p>Pick an agent, or make a new one.</p></div>`; return; }
+  if (!a) {
+    main.innerHTML = `<section class="first"><canvas class="first-mx" aria-hidden="true"></canvas><h1>Make your first agent</h1>
+      <p>Give it a name, a job and a computer. It works while you do other things, and asks before anything it can’t undo.</p>
+      <button class="btn btn-primary" data-first>${icon('plus')}<span>New agent</span></button></section>`;
+    import('../../js/mascot3d.js').then(({ Mascot3D }) => { const c = main.querySelector('.first-mx'); if (c) { const m = new Mascot3D(c, { shared: true, idle: true, follow: true, emotion: 'happy' }); m.hop(); } });
+    main.querySelector('[data-first]').onclick = () => openCreate();
+    return;
+  }
   const comp = computer(a.computer), prov = provider(a.model);
   main.innerHTML = `
     <section class="chat ${state.panel ? 'with-panel' : ''}">

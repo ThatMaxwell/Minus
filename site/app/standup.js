@@ -14,7 +14,7 @@ export const enabled = () => state.settings.standup !== false;
 
 /** True once it's past stand-up time today and you haven't had it (or put it off). */
 export function due() {
-  if (!enabled()) return false;
+  if (!enabled() || !state.agents.length) return false;
   const s = state.settings, [h, m] = at().split(':').map(Number), n = new Date();
   return s.standupDone !== today() && s.standupLater !== today() && n.getHours() * 60 + n.getMinutes() >= h * 60 + m;
 }

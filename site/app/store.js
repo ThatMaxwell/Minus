@@ -2,7 +2,12 @@
 // The desktop app replaces load/save with its database and the agent runtime.
 import { SEED_AGENTS, SEED_THREADS, SEED_ROUTINES, COMPUTERS, PROVIDERS, DEFAULT_PERMS } from './data.js';
 
-const KEY = 'minus.app.v1';
+// In the apps you start with nothing: no example agents, chats or routines, no AI connected.
+// The web preview keeps its example team so there's something to see.
+export const APP = !!window.__TAURI__ && !new URLSearchParams(location.search).has('demo');
+const KEY = APP ? 'minus.app.v2' : 'minus.app.v1';
+const os = () => (/Android/i.test(navigator.userAgent) ? 'Android' : /Mac/.test(navigator.platform) ? 'macOS' : /Win/.test(navigator.platform) ? 'Windows' : 'Linux');
+const HERE = () => [{ id: 'here', name: 'This computer', kind: 'local', status: 'connected', region: 'Your desk', os: os() }];
 const listeners = new Map();
 let uid = Date.now();
 
@@ -21,11 +26,11 @@ export function load() {
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch {}
   const seed = structuredClone;
-  state.agents = saved?.agents || seed(SEED_AGENTS);
-  state.threads = saved?.threads || seed(SEED_THREADS);
-  state.routines = saved?.routines || seed(SEED_ROUTINES);
-  state.computers = saved?.computers || seed(COMPUTERS);
-  state.providers = saved?.providers || PROVIDERS.map((p) => ({ id: p.id, connected: p.connected, key: '' }));
+  state.agents = saved?.agents || (APP ? [] : seed(SEED_AGENTS));
+  state.threads = saved?.threads || (APP ? {} : seed(SEED_THREADS));
+  state.routines = saved?.routines || (APP ? [] : seed(SEED_ROUTINES));
+  state.computers = saved?.computers || (APP ? HERE() : seed(COMPUTERS));
+  state.providers = saved?.providers || PROVIDERS.map((p) => ({ id: p.id, connected: APP ? false : p.connected, key: '' }));
   Object.assign(state.settings, saved?.settings || {});
   for (const a of state.agents) { a.perms ||= { ...DEFAULT_PERMS }; a.outfit ||= {}; state.threads[a.id] ||= []; }
   if (!state.agents.find((a) => a.id === state.route.agent)) state.route.agent = state.agents[0]?.id;

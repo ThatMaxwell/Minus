@@ -116,6 +116,8 @@ jobs:
         working-directory: apps/desktop
         run: |
           [ -d src-tauri/gen/android ] || npx tauri android init --ci
+          # the Android project is made fresh here, so give it the Minus icon (not Tauri's)
+          npx tauri icon icons/source.png
           npx tauri android build --apk --target aarch64
       # Android only installs signed apps. With the ANDROID_KEYSTORE secret every build is
       # signed by the same key, so a new version installs over the old one; without it a

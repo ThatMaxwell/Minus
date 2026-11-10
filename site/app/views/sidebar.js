@@ -4,6 +4,7 @@ import { $, $$, esc, icon, face, mountMascots, mascotsOf, mod } from '../ui.js';
 import { STATUS } from '../data.js';
 import { openCreate } from './create.js';
 import * as su from '../standup.js';
+import * as acct from '../account.js';
 import * as saved from '../saved.js';
 import { WORDS } from '../moods.js';
 
@@ -22,7 +23,7 @@ export function sidebar(el) {
     <button class="saved" data-tip="About how long your agents’ work this week would have taken you by hand (an estimate from their steps)" data-tip-pos="right"><span class="sv-ic">${icon('timer')}</span><span class="sv-t"><b class="sv-n"></b><small>saved this week</small></span><span class="sv-bars"></span></button>
     <div class="side-foot">
       <button data-go="settings" data-tip="Settings|mod ,">${icon('gear')}<span>Settings</span></button>
-      <div class="me" data-tip="Signed in on this computer"><span class="me-av">TM</span><span><b>ThatMaxwell</b><small>Acme workspace</small></span></div>
+      <div class="me"></div>
     </div>`;
 
   const list = $('.ag-list', el);
@@ -81,6 +82,15 @@ export function sidebar(el) {
   meter();
   on('saved', ({ secs }) => meter(secs));
   $('.saved', el).addEventListener('click', () => go('standup'));
+  // you: your GitHub name and picture once you're signed in
+  const me = () => {
+    const u = acct.user(), name = acct.login(), pic = u?.user_metadata?.avatar_url;
+    const box = $('.me', el);
+    box.dataset.tip = u ? 'Signed in with GitHub' : 'Not signed in';
+    box.innerHTML = `<span class="me-av">${pic ? `<img src="${esc(pic)}" alt="">` : esc((name || 'You').slice(0, 2).toUpperCase())}</span><span><b>${esc(name || 'You')}</b><small>${u ? 'Signed in with GitHub' : 'Not signed in'}</small></span>`;
+  };
+  me();
+  on('account', me);
   on('agent', patch);
   on('agents', build);
   on('route', mark);

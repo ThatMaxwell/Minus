@@ -1,6 +1,6 @@
 // The time saved meter: roughly how long the work your agents did would have taken you by
 // hand, counted from each step they take. An estimate, and it says so.
-import { state, on, emit, save } from './store.js';
+import { state, on, emit, save, APP } from './store.js';
 
 const day = (t = Date.now()) => new Date(t).toLocaleDateString('en-CA');
 
@@ -17,7 +17,7 @@ export function secondsFor(step) {
   return 30;
 }
 
-const S = () => (state.saved ||= seed());
+const S = () => (state.saved ||= APP ? { days: {}, agents: {} } : seed());
 // the example agents have been at it for a week
 function seed() {
   const d = {}, mins = [52, 75, 38, 96, 61, 44];

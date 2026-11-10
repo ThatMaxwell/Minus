@@ -24,8 +24,12 @@ import { autoRead, stopSpeaking, speaking } from './voice.js';
 import { startBridge } from './bridge.js';
 import * as account from './account.js';
 import * as runtime from './runtime.js';
+import { showGate, hideGate } from './gate.js';
 
 const tauri = window.__TAURI__;
+const gated = (!!tauri || new URLSearchParams(location.search).has('gate')) && account.configured();
+// until we know whether you're signed in, show nothing at all
+if (gated) document.documentElement.classList.add('locked');
 
 load();
 installDefs();
@@ -100,7 +104,16 @@ startHandoffs();
 startMeter();
 startMoods();
 startDrop();
-account.start();
+account.start().finally(() => {
+  if (!gated) return;
+  if (account.user()) { document.documentElement.classList.remove('locked'); return; }
+  showGate({ phone });
+});
+on('account', () => {
+  if (!gated) return;
+  if (account.user()) { hideGate(); document.documentElement.classList.remove('locked'); }
+  else { document.documentElement.classList.add('locked'); showGate({ phone }); }
+});
 link.start();
 startIsland();
 runtime.listen();
