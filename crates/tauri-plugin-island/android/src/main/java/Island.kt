@@ -345,9 +345,10 @@ class Island(private val ctx: Context, private val send: (JSObject) -> Unit) {
                 fill.color = col
                 canvas.drawCircle(cx, cy, r, fill)
                 canvas.drawCircle(cx, cy, r, edge)
-                val ex = r * 0.36f
-                val ew = r * 0.22f
-                val eh = r * 0.3f * blink
+                // big dark eyes, like the mascots
+                val ex = r * 0.4f
+                val ew = r * 0.29f
+                val eh = r * 0.38f * blink
                 for (s in listOf(-1f, 1f)) {
                     canvas.drawOval(RectF(cx + s * ex - ew, cy - eh, cx + s * ex + ew, cy + eh), eye)
                     if (blink > 0.6f) canvas.drawCircle(cx + s * ex + ew * 0.35f, cy - eh * 0.45f, ew * 0.32f, shine)
