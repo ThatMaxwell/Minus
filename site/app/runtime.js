@@ -94,6 +94,9 @@ export async function run(aid, text) {
 }
 
 
+/** Settings → Agent pace: the pause before each action (the ghost cursor needs a moment). */
+export function applyPace() { tauri?.core.invoke('ghost_pace', { ms: { easy: 420, normal: 140, fast: 0 }[state.settings.pace || 'normal'] }).catch(() => {}); }
+
 export function stop(aid) { tauri?.core.invoke('agent_stop', { agent: aid }); }
 export function forget(aid) { tauri?.core.invoke('agent_forget', { agent: aid }); }
 export const running = (aid) => live.has(aid);
@@ -125,6 +128,7 @@ const brief = (t) => { const s = t.split(/(?<=[.!?])\s/)[0]; return s.length > 9
 export function listen() {
   if (!tauri) return;
   refreshKeys();
+  applyPace();
   tauri.event.listen('agent-event', ({ payload }) => {
     const aid = payload.agent, e = payload.event, a = agent(aid); if (!a) return;
     const cur = live.get(aid);

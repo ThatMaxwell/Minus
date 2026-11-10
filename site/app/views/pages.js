@@ -120,6 +120,8 @@ export function computers(main) {
 }
 
 /* ───────── Settings ───────── */
+const PACES = [['easy', 'Easy to follow'], ['normal', 'Normal'], ['fast', 'Full speed']];
+const pace = () => state.settings.pace || 'normal';
 export function settings(main) {
   clear(); main.onclick = null;
   const draw = () => {
@@ -150,6 +152,9 @@ export function settings(main) {
         ${tog('lively', 'Lively agents', 'They look around, blink and react to what you do')}
         ${tog('notify', 'Notify me', 'When an agent needs your OK or finishes a job')}
         ${tog('sounds', 'Sounds', 'Soft sounds for approvals and finished work')}
+        ${rt.desktop && !island.supported() ? `<div class="set-row"><span class="set-t"><b>Ghost cursor</b><small>See where agents act on your screen, without them taking your mouse</small></span><button class="switch ${state.settings.ghost !== false ? 'on' : ''}" role="switch" aria-checked="${state.settings.ghost !== false}" data-ghost aria-label="Ghost cursor"><i></i></button></div>
+        <div class="set-row"><span class="set-t"><b>Agent pace</b><small>How long agents pause before each action, so you can follow along</small></span>
+          <div class="seg sm" role="radiogroup" aria-label="Agent pace">${PACES.map(([k, t]) => `<button role="radio" aria-checked="${pace() === k}" data-pace="${k}">${t}</button>`).join('')}</div></div>` : ''}
         ${island.supported() ? `<div class="set-row" id="isl-row"><span class="set-t"><b>Floating island</b><small>Checking…</small></span><span class="isl-act"></span></div>` : ''}
         <div class="set-row"><span class="set-t"><b>Morning stand-up</b><small>${state.settings.standup === false ? 'Off' : `Every day at ${esc(state.settings.standupAt || '09:00')}, the island offers it`}</small></span>
           <input class="field time-in" type="time" value="${esc(state.settings.standupAt || '09:00')}" data-sutime aria-label="Stand-up time" ${state.settings.standup === false ? 'disabled' : ''}>
@@ -196,6 +201,9 @@ export function settings(main) {
       if (k === 'lively') document.documentElement.classList.toggle('calm', !state.settings.lively);
     }
     if (e.target.closest('[data-sutoggle]')) { state.settings.standup = state.settings.standup === false; save(); emit('standup'); return draw(); }
+    if (e.target.closest('[data-ghost]')) { state.settings.ghost = state.settings.ghost === false; save(); emit('settings'); return draw(); }
+    const pc_ = e.target.closest('[data-pace]');
+    if (pc_) { state.settings.pace = pc_.dataset.pace; save(); rt.applyPace(); return draw(); }
     if (e.target.closest('[data-islallow]')) return island.allow();
     if (e.target.closest('[data-isltoggle]')) { state.settings.island = !island.enabled(); save(); emit('settings'); return fillIsland(); }
     if (e.target.closest('[data-reset]')) reset();

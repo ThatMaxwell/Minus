@@ -164,7 +164,8 @@ export function chat(main) {
     e.preventDefault();
     const text = ta.value.trim(); if (text || files.length) sendText(text);
   });
-  setTimeout(() => ta.focus({ preventScroll: true }), 50);
+  // on the phone the keyboard waits until you tap the box
+  if (!document.documentElement.classList.contains('phone')) setTimeout(() => ta.focus({ preventScroll: true }), 50);
 
   /* ───────── talking out loud: you speak, Whisper writes it down, the agent answers in its voice ───────── */
   const mic = $('.mic', main), rec = $('.cmp-rec', main), recT = $('.rec-t', main), bars = [...$$('.rec-wave i', main)];

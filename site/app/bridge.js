@@ -40,7 +40,7 @@ function snapshot() {
   const watch = wa ? { agent: looks(wa), count: w.steps.length, recent: w.steps.slice(-3).map((s) => teach.describe(s)) } : null;
   let morning = null;
   if (su.due() && state.route.view !== 'standup') { const r = su.round().speaking; if (r.length) morning = { agents: r.slice(0, 4).map((b) => looks(b.agent)), count: r.length, needs: r.reduce((n, b) => n + b.needs.length, 0) }; }
-  return { working, asks, watch, morning };
+  return { working, asks, watch, morning, ghost: state.settings.ghost !== false };
 }
 
 let t = 0;
@@ -49,7 +49,7 @@ const push = () => { clearTimeout(t); t = setTimeout(() => ch.postMessage({ type
 export function startBridge() {
   on('*', (ev, data) => {
     if (ev === 'message:update' && data?.msg?.kind === 'steps') pulses.set(data.agent, (pulses.get(data.agent) || 0) + 1);
-    if (['agent', 'message', 'message:update', 'approvals', 'agents', 'work', 'teach', 'standup', 'route'].includes(ev)) push();
+    if (['agent', 'message', 'message:update', 'approvals', 'agents', 'work', 'teach', 'standup', 'route', 'settings'].includes(ev)) push();
   });
   ch.onmessage = ({ data: d }) => {
     if (!d || typeof d !== 'object') return;

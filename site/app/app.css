@@ -629,17 +629,63 @@ html.calm *, html.calm *::before { animation-play-state: paused !important; }
 .fchip button { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 6px; color: var(--fg-3); } .fchip button:hover { background: var(--bg-4); color: var(--fg); } .fchip button .i { width: 12px; height: 12px; }
 .m.me .m-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; } .m.me .fchip { background: rgba(0,0,0,.08); color: #19191b; box-shadow: none; padding-right: 10px; } .m.me .fchip .i { color: #55554f; }
 
-/* ───────── the phone: one column, tabs at the bottom, big touch targets ───────── */
+/* ───────── the phone: one column, a floating dock, big touch targets ───────── */
 .ch-back, .tabs { display: none; }
 .phone body { overflow: hidden; }
-.phone .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; height: 100dvh; }
+.phone .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100dvh; }
 .phone .titlebar, .phone .side, .phone .dock-frame { display: none !important; }
 .phone .main { grid-column: 1; grid-row: 1; min-height: 0; padding-top: env(safe-area-inset-top); }
-.phone .tabs { grid-column: 1; grid-row: 2; display: flex; justify-content: space-around; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: rgba(13,13,15,.92); backdrop-filter: blur(16px); }
-.phone .tabs button { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 0 4px; border-radius: 12px; color: var(--fg-3); font-size: 11px; font-weight: 500; }
-.phone .tabs button .i { width: 22px; height: 22px; }
-.phone .tabs button.on { color: var(--fg); }
-.phone .tabs .count { position: absolute; top: 2px; left: calc(50% + 6px); min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; background: var(--amber); color: #0b0b0c; font: 600 10.5px/17px var(--sans); }
+
+/* the dock: liquid glass, floating above the bottom edge */
+.phone .tabs {
+  --glass: rgba(255,255,255,.07);
+  position: fixed; z-index: 50; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom));
+  display: flex; align-items: flex-end; gap: 4px; padding: 7px 9px;
+  border-radius: 31px; isolation: isolate;
+  transform: translate(-50%, 0); transition: transform .5s cubic-bezier(.32, 1.25, .5, 1), opacity .3s;
+  background: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.04) 55%, rgba(255,255,255,.08));
+  -webkit-backdrop-filter: blur(16px) saturate(190%) brightness(1.08);
+  backdrop-filter: blur(16px) saturate(190%) brightness(1.08);
+  backdrop-filter: url(#glass-lens) blur(14px) saturate(190%) brightness(1.08);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255,255,255,.55),
+    inset 0 -1px 1px rgba(255,255,255,.12),
+    inset 1px 0 1px rgba(255,255,255,.14), inset -1px 0 1px rgba(255,255,255,.14),
+    inset 0 0 0 0.5px rgba(255,255,255,.16),
+    inset 0 -14px 22px -14px rgba(255,255,255,.10),
+    0 18px 40px -10px rgba(0,0,0,.65), 0 4px 10px rgba(0,0,0,.35);
+}
+/* the light that sits on the glass, and follows your finger */
+.phone .tb-sheen { position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; overflow: hidden;
+  background: radial-gradient(140px 70px at var(--x, 50%) -10%, rgba(255,255,255,.28), transparent 70%), linear-gradient(100deg, transparent 20%, rgba(255,255,255,.06) 45%, transparent 60%);
+  transition: opacity .3s; opacity: .7; }
+.phone .tabs.touching .tb-sheen { opacity: 1; }
+.phone .tabs::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; padding: 1px;
+  background: linear-gradient(160deg, rgba(255,255,255,.55), rgba(255,255,255,.05) 35%, rgba(255,255,255,.02) 65%, rgba(255,255,255,.35));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+.phone .tabs button { position: relative; width: 52px; height: 52px; display: grid; place-items: center; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.phone .tb-ic { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 16px; color: rgba(255,255,255,.72);
+  transform: scale(var(--s, 1)); transform-origin: 50% 100%; transition: transform .22s cubic-bezier(.3, 1.4, .5, 1), background .25s, color .25s, box-shadow .25s; }
+.phone .tabs.touching .tb-ic { transition: transform .08s linear, background .25s, color .25s; }
+.phone .tb-ic .i { width: 24px; height: 24px; stroke-width: 1.7; }
+.phone .tabs button.on .tb-ic { color: #fff; background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.08)); box-shadow: inset 0 1px 0 rgba(255,255,255,.4), inset 0 0 0 .5px rgba(255,255,255,.18), 0 4px 10px -4px rgba(0,0,0,.5); }
+.phone .tb-dot { position: absolute; bottom: -3px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: rgba(255,255,255,.85); opacity: 0; transform: scale(.4); transition: opacity .25s, transform .25s; }
+.phone .tabs button.on .tb-dot { opacity: 1; transform: none; }
+/* the name pops up above the icon under your finger, like the Mac's dock labels */
+.phone .tb-tip { position: absolute; bottom: calc(100% + 18px); left: 50%; transform: translate(-50%, 6px) scale(.9); padding: 5px 11px; border-radius: 10px; white-space: nowrap;
+  font-size: 12.5px; font-weight: 500; color: #fff; background: rgba(30,30,34,.82); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.18), 0 6px 16px rgba(0,0,0,.4);
+  opacity: 0; pointer-events: none; transition: opacity .15s, transform .2s; }
+.phone .tabs button.near .tb-tip { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.phone .tabs button.bounce .tb-ic { animation: tb-bounce .5s cubic-bezier(.3, 1.6, .5, 1); }
+@keyframes tb-bounce { 0% { transform: translateY(0); } 35% { transform: translateY(-12px); } 100% { transform: translateY(0); } }
+.phone .tabs .count { position: absolute; top: 2px; right: 2px; z-index: 2; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--amber); color: #0b0b0c; font: 600 10.5px/18px var(--sans); box-shadow: 0 0 0 2px rgba(0,0,0,.35); }
+/* typing: the dock slips away */
+.phone.kb .tabs { transform: translate(-50%, calc(100% + 40px)); opacity: 0; pointer-events: none; }
+/* room for it at the bottom of every page */
+.phone .home, .phone .page, .phone .room, .phone .su { padding-bottom: calc(110px + env(safe-area-inset-bottom)) !important; }
+.phone .composer { padding-bottom: calc(92px + env(safe-area-inset-bottom)); transition: padding .4s cubic-bezier(.32, 1.25, .5, 1); }
+.phone.kb .composer { padding-bottom: 10px; }
+.phone .su-f { bottom: calc(84px + env(safe-area-inset-bottom)); }
 /* home */
 .home { height: 100%; overflow: auto; padding: 14px 16px 28px; }
 .hm-h { display: flex; align-items: center; gap: 8px; height: 48px; }
@@ -671,7 +717,7 @@ html.calm *, html.calm *::before { animation-play-state: paused !important; }
 .phone .thread { padding: 16px 14px 10px; }
 .phone .m.me { max-width: 86%; }
 .phone .card { width: 100%; }
-.phone .composer { padding: 8px 10px 10px; }
+.phone .composer { padding-top: 8px; padding-left: 10px; padding-right: 10px; }
 .phone .cmp-hint { display: none; }
 .phone .cmp-row > .icon-btn, .phone .cmp-row > .chip { opacity: 1 !important; transform: none !important; }
 .phone .cmp-row > .chip { display: none; }

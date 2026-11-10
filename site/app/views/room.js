@@ -36,7 +36,7 @@ export function room(main) {
   };
   ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; est(); });
   ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
-  est(); setTimeout(() => ta.focus(), 60);
+  est(); if (!document.documentElement.classList.contains('phone')) setTimeout(() => ta.focus(), 60);
 
   form.addEventListener('click', (e) => {
     const p = e.target.closest('[data-pick]'); if (!p) return;

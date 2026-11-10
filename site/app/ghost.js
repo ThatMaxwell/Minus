@@ -19,8 +19,11 @@ let origin = { x: 0, y: 0, scale: 1 };
 
 // what each agent looks like comes from the app, over the same channel the dock uses
 const ch = new BroadcastChannel('minus-dock');
+let shown = true; // Settings → Ghost cursor
 ch.onmessage = ({ data }) => {
+  if (data?.type === 'ghost') { shown = !!data.on; root.style.display = shown ? '' : 'none'; return; }
   if (data?.type !== 'state') return;
+  if (typeof data.state.ghost === 'boolean' && data.state.ghost !== shown) { shown = data.state.ghost; root.style.display = shown ? '' : 'none'; }
   for (const a of [...data.state.working, ...data.state.asks.map((q) => q.agent)]) looks.set(a.id, a);
 };
 ch.postMessage({ type: 'hello' });

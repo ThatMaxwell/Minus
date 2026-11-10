@@ -17,6 +17,7 @@ import { startDrop } from './drop.js';
 import { home, leaveHome } from './views/home.js';
 import * as link from './link.js';
 import { startIsland } from './island.js';
+import { dock } from './tabs.js';
 import * as su from './standup.js';
 import { openCreate } from './views/create.js';
 import { autoRead, stopSpeaking, speaking } from './voice.js';
@@ -43,7 +44,8 @@ app.innerHTML = `
   </header>
   <aside class="side" aria-label="Agents and places"></aside>
   <main class="main" id="main"></main>
-  ${phone ? `<nav class="tabs" aria-label="Places">${[['home', 'inbox', 'Agents'], ['approvals', 'bell', 'Needs you'], ['standup', 'sunrise', 'Stand-up'], ['room', 'room', 'Ask'], ['settings', 'gear', 'Settings']].map(([v, i, t]) => `<button data-tab="${v}">${icon(i)}<span>${t}</span>${v === 'approvals' ? '<b class="count" hidden></b>' : ''}</button>`).join('')}</nav>` : ''}`;
+`;
+if (phone) dock(app);
 
 sidebar($('.side'));
 const main = $('.main');
@@ -51,11 +53,8 @@ const views = { chat, approvals, routines, computers, settings, standup, room, h
 const render = () => {
   main.onclick = null; leaveChat(); leaveHome();
   (views[state.route.view] || (phone ? home : chat))(main);
-  if (phone) { $$('.tabs [data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === state.route.view)); const n = pendingApprovals().length, c = $('.tabs .count'); c.hidden = !n; c.textContent = n; }
 };
 if (phone) {
-  $('.tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) go(b.dataset.tab); });
-  on('approvals', () => { const n = pendingApprovals().length, c = $('.tabs .count'); c.hidden = !n; c.textContent = n; });
   // Android's back button: from anywhere back to the agents
   addEventListener('popstate', () => { if (state.route.view !== 'home') go('home'); });
   on('route', (r) => { if (r.view !== 'home') history.pushState({}, ''); });
