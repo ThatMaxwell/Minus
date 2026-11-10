@@ -44,6 +44,25 @@ jobs:
       - name: Build the app
         working-directory: apps/desktop
         run: npx tauri build --bundles ${{ matrix.bundles }}
+      - name: Does it start? (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:MINUS_NO_DIALOG = "1"
+          Remove-Item "$env:TEMP\minus-crash.log" -ErrorAction SilentlyContinue
+          $p = Start-Process target\release\minus.exe -PassThru -RedirectStandardError err.txt -RedirectStandardOutput out.txt
+          Start-Sleep 25
+          $crash = Get-Content "$env:TEMP\minus-crash.log" -Raw -ErrorAction SilentlyContinue
+          if ($p.HasExited -or $crash) {
+            Write-Host "::error::Minus did not stay running (exit code: $($p.ExitCode))"
+            Write-Host "--- crash log ---"; Write-Host $crash
+            Write-Host "--- stderr ---"; Get-Content err.txt -ErrorAction SilentlyContinue
+            Write-Host "--- stdout ---"; Get-Content out.txt -ErrorAction SilentlyContinue
+            exit 1
+          }
+          Write-Host "Minus is running after 25 seconds"
+          Get-Process | Where-Object { $_.ProcessName -match 'minus|msedgewebview2' } | Format-Table ProcessName,Id,CPU,WorkingSet64 -Auto
+          Stop-Process -Id $p.Id -Force
       - name: Minus Hands test tool
         if: runner.os == 'Windows'
         run: cargo build --release -p minus-hands
@@ -101,3 +120,38 @@ jobs:
         with:
           name: Minus-Android
           path: apps/desktop/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+
+  # direct downloads, no zips: every build of main becomes the "latest" release
+  release:
+    name: Latest release
+    needs: [desktop, android]
+    if: always() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: built
+          pattern: Minus-*
+      - name: Name the files
+        run: |
+          mkdir -p out
+          pick() { f=$(find built -type f -name "$1" | head -1); [ -n "$f" ] && cp "$f" "out/$2" || echo "missing: $1"; }
+          pick '*-setup.exe' Minus-Windows-Setup.exe
+          pick '*.msi' Minus-Windows.msi
+          pick '*.dmg' Minus-macOS.dmg
+          pick '*.AppImage' Minus-Linux.AppImage
+          pick '*.deb' Minus-Linux.deb
+          pick '*.rpm' Minus-Linux.rpm
+          pick 'minus-linux-x86_64.tar.gz' Minus-Linux.tar.gz
+          pick '*.apk' Minus-Android.apk
+          ls -la out
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest out/* --prerelease --target "${{ github.sha }}" --title "Minus (latest build)" \
+            --notes "The newest build of Minus, straight from main. Windows: Minus-Windows-Setup.exe · Mac: Minus-macOS.dmg · Android: Minus-Android.apk · Linux: Minus-Linux.AppImage. Not code-signed yet, so Windows may say 'Windows protected your PC' (More info → Run anyway) and Android asks to allow installing from your browser."

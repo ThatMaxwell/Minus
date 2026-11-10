@@ -327,8 +327,26 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![hands_windows, hands_look, hands_act, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
 }
 
+/// When Minus can't start or hits a bug it can't recover from, say so (a popup on Windows,
+/// and minus-crash.log in the temp folder) instead of vanishing.
+fn report(msg: &str) {
+    eprintln!("{msg}");
+    let path = std::env::temp_dir().join("minus-crash.log");
+    let _ = std::fs::write(&path, format!("{msg}\n"));
+    #[cfg(windows)]
+    if std::env::var_os("MINUS_NO_DIALOG").is_none() {
+        use windows::core::HSTRING;
+        use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+        let text = format!("{msg}\n\nThis was saved to {}. Send it to the Minus team.", path.display());
+        unsafe {
+            MessageBoxW(None, &HSTRING::from(text), &HSTRING::from("Minus"), MB_OK | MB_ICONERROR);
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    std::panic::set_hook(Box::new(|info| report(&format!("Minus hit a problem and has to close.\n\n{info}"))));
     #[cfg(desktop)]
     let started_hidden = std::env::args().any(|a| a == "--hidden");
     #[allow(unused_mut)]
@@ -421,5 +439,5 @@ pub fn run() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("Minus failed to start");
+        .unwrap_or_else(|e| report(&format!("Minus couldn't start.\n\n{e}")));
 }
