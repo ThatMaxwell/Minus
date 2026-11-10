@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Signing in to Minus</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Serif&family=Geist:wght@400;500;600&display=swap" />
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; color: #f2f2ef; font: 400 15px/1.5 Geist, system-ui, sans-serif; }
+    main { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; box-sizing: border-box; }
+    h1 { margin: 0 0 10px; font: 400 34px/1.2 "PT Serif", Georgia, serif; letter-spacing: -0.02em; }
+    p { margin: 0 0 24px; max-width: 380px; color: #a6a6ab; }
+    a.btn { display: inline-flex; align-items: center; height: 48px; padding: 0 26px; border-radius: 24px; background: #f3f2ee; color: #0b0b0c; font-weight: 600; text-decoration: none; }
+    a.btn[hidden] { display: none; }
+    small { margin-top: 18px; color: #6e6e74; font-size: 12.5px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1 id="title">Opening Minus…</h1>
+    <p id="msg">GitHub said yes. Taking you back to the app to finish signing in.</p>
+    <a class="btn" id="open" href="#">Open Minus</a>
+    <small>If nothing happens, make sure Minus is installed, then press the button.</small>
+  </main>
+  <script>
+    // Supabase sends sign-ins here (or to the home page, which forwards here). The app made
+    // the request and holds the other half of the key, so it finishes the sign-in.
+    const q = new URLSearchParams(location.search), code = q.get('code'), err = q.get('error_description') || q.get('error');
+    const open = document.getElementById('open');
+    if (err) {
+      document.getElementById('title').textContent = 'Sign-in didn’t work';
+      document.getElementById('msg').textContent = err.replace(/\+/g, ' ');
+      open.hidden = true;
+    } else if (!code) {
+      document.getElementById('title').textContent = 'Nothing to sign in';
+      document.getElementById('msg').textContent = 'Start from the Minus app: press Continue with GitHub there.';
+      open.hidden = true;
+    } else {
+      open.href = 'minus://auth/callback?code=' + encodeURIComponent(code);
+      setTimeout(() => { location.href = open.href; }, 300);
+    }
+  </script>
+</body>
+</html>

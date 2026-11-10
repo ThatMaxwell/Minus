@@ -1,6 +1,10 @@
 <!doctype html>
 <html lang="en">
 <head>
+  <script>
+    // a sign-in that Supabase sent to the home page belongs to the Minus app: hand it over
+    (function () { var q = new URLSearchParams(location.search); if (q.get('code') || q.get('error_description')) location.replace('auth.html' + location.search); })();
+  </script>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>minus</title>
