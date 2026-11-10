@@ -1,5 +1,5 @@
 // A conversation with one agent, its live computer, and the composer.
-import { state, on, agent, computer, updateAgent, go, emit, save, providerState, post, id } from '../store.js';
+import { state, on, agent, computer, updateAgent, go, emit, save, providerState, post, id, APP } from '../store.js';
 import { $, $$, esc, icon, face, mountMascots, mascotsOf, menu, sheet, toast, motion, IN, mod, timeAgo } from '../ui.js';
 import { react } from '../director.js';
 import { respond, choose, resolve } from '../brain.js';
@@ -7,7 +7,7 @@ import { provider, PROVIDERS, STATUS } from '../data.js';
 import { ComputerSim } from '../../js/computer.js';
 import { openCreate } from './create.js';
 import { Listener, transcribe, hasKey, heardYou, speak, stopSpeaking, speaking, VoiceError } from '../voice.js';
-import { keySheet } from './pages.js';
+import { keySheet, connect } from './pages.js';
 import * as rt from '../runtime.js';
 import * as nb from '../notebook.js';
 import * as teach from '../teach.js';
@@ -119,6 +119,8 @@ export function chat(main) {
     if (b) { const card = b.closest('[data-mid]'); return resolve(a.id, card.dataset.mid, b.dataset.ap); }
     const c = e.target.closest('[data-choice]');
     if (c) { const card = c.closest('[data-mid]'); return choose(a.id, card.dataset.mid, c.dataset.choice); }
+    const cn = e.target.closest('[data-connect]');
+    if (cn) return connect(cn.dataset.connect, () => {});
     const r = e.target.closest('[data-run-skill]');
     if (r) return teach.run(a.id, r.dataset.runSkill);
     if (e.target.closest('[data-open-skills]')) return nb.open(main, a.id, 'skills');
@@ -250,19 +252,51 @@ export function chat(main) {
     const sb = $('[data-say]', node); if (sb) sb.dataset.tip = isOn ? 'Stop' : 'Read aloud';
   }));
 
-  /* ───────── the agent's computer ───────── */
-  const sim = new ComputerSim($('.pcp-sim', main), { agent: a.name, color: a.color, speed: 1.15, url: comp?.kind === 'local' ? 'localhost:3000/login' : 'crm.acme.example/leads/new',
-    onStep: ({ text }) => {
-      const rows = $('.pcp-rows', main); if (!rows) return; // left the chat mid-step
-      const r = document.createElement('div');
-      r.className = 'lg'; r.innerHTML = `<time>${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time><span></span>`;
-      r.querySelector('span').textContent = text; rows.prepend(r);
-      while (rows.children.length > 40) rows.lastChild.remove();
-    } });
-  let driving = false;
-  const syncSim = () => { const x = agent(a.id); if (x?.status === 'working' && state.panel && !driving) { if (sim.stopped) sim.run(); } else sim.stop(); };
-  syncSim();
-  off.push(on('agent', (x) => x.id === a.id && syncSim()), () => sim.stop());
+  /* ───────── the agent's computer: your real screen in the app, a pretend one in the preview ───────── */
+  const logStep = (text) => {
+    const rows = $('.pcp-rows', main); if (!rows) return; // left the chat mid-step
+    const r = document.createElement('div');
+    r.className = 'lg'; r.innerHTML = `<time>${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time><span></span>`;
+    r.querySelector('span').textContent = text; rows.prepend(r);
+    while (rows.children.length > 40) rows.lastChild.remove();
+  };
+  let driving = false, syncSim = () => {};
+  if (APP) {
+    const box = $('.pcp-sim', main);
+    box.innerHTML = `<div class="pcp-live"><img alt="${esc(a.name)}’s screen, live"><i class="pcp-mark" hidden></i></div><p class="pcp-msg" hidden></p>`;
+    const img = $('.pcp-live img', box), mark = $('.pcp-mark', box), msg = $('.pcp-msg', box);
+    let shot = null, timer = 0, gone = false;
+    const tick = async () => {
+      if (gone || !main.contains(box)) return;
+      if (state.panel && document.visibilityState === 'visible') {
+        try {
+          shot = await window.__TAURI__.core.invoke('hands_screen', { maxEdge: 1100 });
+          img.src = 'data:image/png;base64,' + shot.png; img.hidden = false; msg.hidden = true;
+        } catch (err) {
+          img.hidden = true; msg.hidden = false;
+          msg.textContent = /support|platform/i.test(String(err)) ? 'Minus can see and use the screen on Windows for now. Mac and Linux are next.' : `Can’t see the screen: ${err}`;
+          return; // nothing to watch here
+        }
+      }
+      timer = setTimeout(tick, agent(a.id)?.status === 'working' ? 600 : 2500);
+    };
+    tick();
+    off.push(() => { gone = true; clearTimeout(timer); });
+    off.push(on('step', ({ agent: aid, text }) => aid === a.id && logStep(text)));
+    // where it's about to act, marked on the screen
+    off.push(on('point', (p) => {
+      if (p.agent !== a.id || !shot) return;
+      const x = ((p.x + p.w / 2 - shot.origin_x) * shot.scale) / shot.width, y = ((p.y + p.h / 2 - shot.origin_y) * shot.scale) / shot.height;
+      if (x < 0 || x > 1 || y < 0 || y > 1) return;
+      mark.hidden = false; mark.style.left = x * 100 + '%'; mark.style.top = y * 100 + '%'; mark.style.setProperty('--c', a.color);
+      mark.classList.remove('go'); void mark.offsetWidth; mark.classList.add('go');
+    }));
+  } else {
+    const sim = new ComputerSim($('.pcp-sim', main), { agent: a.name, color: a.color, speed: 1.15, url: comp?.kind === 'local' ? 'localhost:3000/login' : 'crm.acme.example/leads/new', onStep: ({ text }) => logStep(text) });
+    syncSim = () => { const x = agent(a.id); if (x?.status === 'working' && state.panel && !driving) { if (sim.stopped) sim.run(); } else sim.stop(); };
+    syncSim();
+    off.push(on('agent', (x) => x.id === a.id && syncSim()), () => sim.stop());
+  }
 
   /* ───────── header actions ───────── */
   main.onclick = (e) => {
@@ -295,7 +329,7 @@ export function chat(main) {
       { label: `Delete ${a.name}`, icon: 'trash', danger: true, run: () => remove(a) },
     ], { align: 'right' });
     if (act === 'takeover') {
-      driving = true; sim.stop(); $('.pcp-yours', main).hidden = false; react(a.id, 'takeover');
+      driving = true; syncSim(); if (APP && rt.running(a.id)) rt.stop(a.id); $('.pcp-yours', main).hidden = false; react(a.id, 'takeover');
       motion().animate($('.pcp-yours > div', main), { opacity: [0, 1], scale: [0.95, 1] }, { type: 'spring', stiffness: 380, damping: 28 });
     }
     if (act === 'giveback') { driving = false; $('.pcp-yours', main).hidden = true; react(a.id, 'giveback'); syncSim(); toast(`${a.name} has the computer again`, { icon: 'hand' }); }
@@ -391,7 +425,13 @@ export function msgHTML(a, m, prev, cont) {
   const head = sameRun ? '<span class="gutter"></span>' : face(a, 26);
   const name = sameRun ? '' : `<b class="who">${esc(a.name)} <time>${m.at ? timeAgo(m.at) : ''}</time></b>`;
   let body = '';
-  if (m.kind === 'skill') {
+  if (m.kind === 'needai') {
+    const p = provider(m.provider);
+    body = `<div class="card need-ai"><div class="card-h">${icon('key')}<span>Needs an AI to think with</span></div>
+      <p class="ask-what">${esc(a.name)} uses ${esc(p.name)}, and it isn’t connected yet.</p>
+      <p class="ask-detail">Connect it once and every agent using ${esc(p.name)} works for real. Your key stays on this computer.</p>
+      ${m.connected ? `<p class="ask-done">${icon('check')}${esc(p.name)} connected. ${esc(a.name)} is on it.</p>` : `<div class="ask-btns"><button class="btn btn-primary btn-sm" data-connect="${esc(m.provider)}">${p.icon}<span>Connect ${esc(p.name)}</span></button></div>`}</div>`;
+  } else if (m.kind === 'skill') {
     const sk = (a.skills || []).find((s) => s.id === m.skill);
     body = `<div class="card skill-card">
       <div class="card-h">${icon('showme')}<span>Learned a new skill</span></div>

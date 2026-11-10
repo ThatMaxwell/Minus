@@ -288,7 +288,7 @@ export function keySheet(done = () => {}) {
     }
   };
 }
-function connect(pid, done) {
+export function connect(pid, done) {
   const p = provider(pid), eng = rt.ENGINES[pid] || {}, ps = providerState(pid) || {};
   const local = p.local, custom = eng.custom;
   const s = sheet(`<form class="mini-form"><h3>${p.icon} Connect ${p.name}</h3>
@@ -314,5 +314,6 @@ function connect(pid, done) {
     if (f.has('u')) st.baseUrl = String(f.get('u') || '').trim();
     save(); s.close(); done();
     toast(rt.desktop ? `${p.name} connected. Agents using it now work for real.` : `${p.name} connected`);
+    import('../brain.js').then((b) => b.aiConnected(pid));
   };
 }

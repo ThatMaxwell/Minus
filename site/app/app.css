@@ -780,3 +780,15 @@ html.calm *, html.calm *::before { animation-play-state: paused !important; }
 .first p { margin: 10px 0 22px; max-width: 420px; color: var(--fg-2); font-size: 14.5px; line-height: 1.55; }
 .first .btn { height: 42px; padding: 0 18px; gap: 6px; } .first .btn .i { width: 16px; height: 16px; }
 .me-av { overflow: hidden; } .me-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* the real screen, live */
+.pcp-live { position: relative; width: 100%; border-radius: 10px; overflow: hidden; background: #000; box-shadow: var(--hi); }
+.pcp-live img { display: block; width: 100%; height: auto; }
+.pcp-mark { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; border: 2.5px solid var(--c, var(--mint)); box-shadow: 0 0 0 4px rgba(0,0,0,.35); pointer-events: none; }
+.pcp-mark.go { animation: pcp-mark 1.4s var(--ease) forwards; }
+@keyframes pcp-mark { 0% { transform: scale(1.8); opacity: 0; } 20% { transform: scale(1); opacity: 1; } 80% { opacity: 1; } 100% { transform: scale(.7); opacity: 0; } }
+.pcp-msg { margin: 0; padding: 30px 18px; text-align: center; color: var(--fg-2); font-size: 13px; line-height: 1.5; }
+.need-ai .card-h { color: var(--amber); }
+.need-ai .btn svg { width: 15px; height: 15px; margin-right: 4px; }
+.ask-done { display: flex; align-items: center; gap: 8px; margin: 0; padding: 14px 16px 16px; color: var(--mint); font-size: 13px; }
+.ask-done svg { width: 15px; height: 15px; }

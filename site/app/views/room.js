@@ -1,12 +1,13 @@
 // Ask the room: one question, and every agent answers with its own AI. A Claude agent and a
 // GPT agent can really disagree. Then they can reply to each other, and one sums it up.
-import { state, agent, save } from '../store.js';
+import { state, agent, save, APP } from '../store.js';
 import { $, $$, esc, icon, face, mountMascots, mascotsOf, motion, IN, toast } from '../ui.js';
 import { react, feel } from '../director.js';
 import { provider } from '../data.js';
 import * as rt from '../runtime.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const noAI = (a) => new Error(`${a.name} has no AI connected yet. Connect ${provider(a.model).name} in Settings → Your AI.`);
 const money = (c) => (c == null ? '' : c < 0.01 ? '<$0.01' : '$' + c.toFixed(2));
 
 export function room(main) {
@@ -64,7 +65,7 @@ export function room(main) {
     await Promise.all(who.map(async (a, k) => {
       const card = $(`.rm-card[data-a="${CSS.escape(a.id)}"]`, out);
       try {
-        const r = rt.ready(a) ? await rt.roomAnswer(a, text, [], 1) : await demoAnswer(a, text, k);
+        const r = rt.ready(a) ? await rt.roomAnswer(a, text, [], 1) : APP ? (() => { throw noAI(a); })() : await demoAnswer(a, text, k);
         q.answers[a.id] = r;
         fill(card, '.rm-a', r.text);
         if (r.cost != null) { q.cost += r.cost; $('.rm-cost', card).textContent = money(r.cost); }
@@ -100,7 +101,7 @@ export function room(main) {
         react(a.id, 'thinking');
         try {
           const others = all.filter(([n]) => n !== a.name);
-          const r = rt.ready(a) ? await rt.roomAnswer(a, q.text, others, 2) : await demoReply(a, others, k);
+          const r = rt.ready(a) ? await rt.roomAnswer(a, q.text, others, 2) : APP ? (() => { throw noAI(a); })() : await demoReply(a, others, k);
           q.replies[a.id] = r;
           $('.rm-reply span', card).innerHTML = `${icon('handoff')}After hearing the others`;
           fill(card, '.rm-r', r.text);
@@ -120,7 +121,7 @@ export function room(main) {
       box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       const all = said().concat(Object.entries(q.replies).map(([id, r]) => [agent(id)?.name + ' (reply)', r.text]));
       try {
-        const r = rt.ready(by) ? await rt.roomSumUp(by, q.text, all) : await demoSum(q);
+        const r = rt.ready(by) ? await rt.roomSumUp(by, q.text, all) : APP ? (() => { throw noAI(by); })() : await demoSum(q);
         if (r.cost != null) q.cost += r.cost;
         const parts = { Agree: '', Differ: '', Suggest: '' };
         for (const line of r.text.split(/\n+/)) { const m = line.match(/^\W*(Agree|Differ|Suggest)\W*:?\s*(.*)$/i); if (m) parts[m[1][0].toUpperCase() + m[1].slice(1).toLowerCase()] = m[2]; }

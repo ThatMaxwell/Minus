@@ -1,7 +1,7 @@
 // A stand-in for the agent runtime: replies, runs work in steps on its computer, and
 // asks for approval before anything it can't undo. The desktop app swaps this for the
 // real runtime; the messages it posts have the same shapes.
-import { state, agent, computer, post, patchMessage, updateAgent, emit, id, save } from './store.js';
+import { state, agent, computer, post, patchMessage, updateAgent, emit, id, save, APP } from './store.js';
 import { react } from './director.js';
 import * as rt from './runtime.js';
 import * as nb from './notebook.js';
@@ -52,6 +52,8 @@ export async function respond(aid, text) {
     if (mine) mine.job = true;
     return rt.run(aid, text);
   }
+  // the app never pretends: without an AI the agent says so, and picks up once you connect one
+  if (APP) return needsAI(aid, text);
   if (busy.has(aid)) return;
   busy.add(aid);
   const prevStatus = a.status;
@@ -129,6 +131,28 @@ async function useSkill(aid, sk, text, prevStatus) {
   react(aid, 'yes');
   await wait(700);
   teach.run(aid, sk.id, got);
+}
+
+const waitingForAI = new Map(); // agent -> what you asked, to send once an AI is connected
+function needsAI(aid, text) {
+  const a = agent(aid);
+  waitingForAI.set(aid, text);
+  const last = (state.threads[aid] || []).at(-1);
+  if (last?.kind !== 'needai') post(aid, { from: 'agent', kind: 'needai', provider: a.model });
+  updateAgent(aid, { status: 'idle', statusText: 'Needs an AI' });
+  react(aid, 'confused');
+}
+/** After you connect an AI: agents that were waiting on it get going with what you asked. */
+export function aiConnected(pid) {
+  for (const [aid, text] of [...waitingForAI]) {
+    const a = agent(aid);
+    if (a?.model !== pid || !rt.ready(a)) continue;
+    waitingForAI.delete(aid);
+    const card = (state.threads[aid] || []).findLast((m) => m.kind === 'needai' && !m.connected);
+    if (card) patchMessage(aid, card.mid, { connected: true });
+    updateAgent(aid, { statusText: 'Getting started' });
+    respond(aid, text);
+  }
 }
 
 export async function choose(aid, mid, choice) {

@@ -151,6 +151,7 @@ export function listen() {
       case 'step':
         if (!cur) break;
         cur.steps.push(e.text);
+        emit('step', { agent: aid, text: e.text });
         card({ steps: cur.steps.slice(-5), done: cur.steps.length });
         updateAgent(aid, { statusText: e.text });
         react(aid, 'step');
@@ -178,6 +179,9 @@ export function listen() {
         break;
       case 'hand_off':
         emit('handoff', { from: aid, to: e.to, job: e.job });
+        break;
+      case 'point':
+        emit('point', { agent: aid, ...e });
         break;
       case 'face':
         // its own expression, chosen by the agent (the code it wrote never shows)

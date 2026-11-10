@@ -6,6 +6,7 @@ import { $, esc, icon, motion, mascotsOf } from './ui.js';
 import { react } from './director.js';
 import { respond, work } from './brain.js';
 import * as rt from './runtime.js';
+import { APP } from './store.js';
 
 const byName = (n) => state.agents.find((a) => a.name.toLowerCase() === String(n).trim().toLowerCase());
 
@@ -17,7 +18,7 @@ export function handOff(fromId, toName, job) {
   fly(from, to, job);
   react(from.id, 'yes');
   // the teammate starts on it (it's a job, not a chat)
-  setTimeout(() => (rt.ready(to) ? respond(to.id, `${job}\n\n(${from.name} handed this to you.)`) : work(to.id, job)), 1100);
+  setTimeout(() => (APP || rt.ready(to) ? respond(to.id, `${job}\n\n(${from.name} handed this to you.)`) : work(to.id, job)), 1100);
   emit('handed', { from: from.id, to: to.id });
   return true;
 }

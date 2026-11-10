@@ -58,6 +58,30 @@ async fn hands_look(state: tauri::State<'_, HandsState>, target: Option<Target>)
     .map_err(|e| e.to_string())?
 }
 
+/// The screen right now, small enough to show in the app, and how to map screen pixels onto it
+/// (so the app can mark where an agent is acting).
+#[derive(Serialize)]
+struct Screen {
+    png: String,
+    width: u32,
+    height: u32,
+    scale: f64,
+    origin_x: i32,
+    origin_y: i32,
+}
+
+#[tauri::command]
+async fn hands_screen(state: tauri::State<'_, HandsState>, max_edge: Option<u32>) -> Result<Screen, String> {
+    use base64::Engine;
+    let h = state.get()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let s = h.screenshot_for_model(max_edge.unwrap_or(960)).map_err(|e| e.to_string())?;
+        Ok(Screen { png: base64::engine::general_purpose::STANDARD.encode(&s.png), width: s.width, height: s.height, scale: s.scale, origin_x: s.origin_x, origin_y: s.origin_y })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn hands_act(state: tauri::State<'_, HandsState>, actions: Vec<Action>) -> Result<Vec<ActResult>, String> {
     let h = state.get()?;
@@ -377,11 +401,11 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
 /// The commands the app's pages can call.
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
+    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
 }
 #[cfg(mobile)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
+    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
 }
 
 /// When Minus can't start or hits a bug it can't recover from, say so (a popup on Windows,
