@@ -357,6 +357,31 @@ pub fn run() {
             let handle = app.handle().clone();
             app.manage(Agents(agent::Runtime::new(app.path().app_data_dir()?.join("conversations"))));
 
+            // minus:// links (sign-in coming back, a pairing code) reach the page, on every platform
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let h2 = handle.clone();
+                app.deep_link().on_open_url(move |e| {
+                    for url in e.urls() {
+                        let _ = h2.emit("deep-link", url.to_string());
+                    }
+                    #[cfg(desktop)]
+                    show_main(h2.clone());
+                });
+                // a link that started the app
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    let h3 = handle.clone();
+                    let urls: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
+                    // give the page a moment to start listening
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(1500));
+                        for u in urls {
+                            let _ = h3.emit("deep-link", u);
+                        }
+                    });
+                }
+            }
+
             #[cfg(desktop)]
             {
                 use tauri_plugin_autostart::ManagerExt;
@@ -371,13 +396,6 @@ pub fn run() {
                 // installed builds register minus:// themselves; this covers running from source
                 #[cfg(any(windows, target_os = "linux"))]
                 let _ = app.deep_link().register_all();
-                let h2 = handle.clone();
-                app.deep_link().on_open_url(move |e| {
-                    for url in e.urls() {
-                        let _ = h2.emit("deep-link", url.to_string());
-                    }
-                    show_main(h2.clone());
-                });
 
                 tray(&handle)?;
                 make_dock(&handle)?;
