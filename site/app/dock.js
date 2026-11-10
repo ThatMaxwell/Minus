@@ -15,6 +15,22 @@ const { animate } = window.Motion;
 const tauri = window.__TAURI__;
 const ch = new BroadcastChannel('minus-dock');
 const island = document.getElementById('island'), stash = document.getElementById('stash');
+// On a MacBook the island lives in the notch: idle it is the notch, working it grows out to
+// either side of the camera, and questions drop down below it. (dock.html?notch=200x32 fakes one.)
+let NOTCH = null;
+async function findNotch() {
+  const q = new URLSearchParams(location.search).get('notch');
+  if (q) { const [w, h] = q.split('x').map(Number); NOTCH = { width: w || 200, height: h || 32 }; }
+  else if (tauri) NOTCH = await tauri.core.invoke('dock_notch').catch(() => null);
+  if (!NOTCH) return;
+  const r = document.documentElement;
+  r.classList.add('notch');
+  r.style.setProperty('--nw', `${NOTCH.width}px`);
+  r.style.setProperty('--nh', `${NOTCH.height}px`);
+  // the curved corners where the island meets the top of the screen
+  for (const side of ['l', 'r']) { const e = document.createElement('i'); e.className = `ear ${side}`; document.body.appendChild(e); }
+  new ResizeObserver(() => r.style.setProperty('--iw', `${island.offsetWidth}px`)).observe(island);
+}
 const SHADOW = { x: 18, b: 24 }; // window room for the island's shadow
 const SPRING = { type: 'spring', stiffness: 380, damping: 34, mass: 0.9 };
 
@@ -93,6 +109,9 @@ function html(m) {
       <button class="w-x" data-act="su-later" aria-label="Not today">${ICON.x}</button>
       <button class="btn solid" data-act="su-start">Start</button></div>`;
   }
+  // in the notch: idle looks exactly like the notch; one-line states sit either side of the camera
+  if (NOTCH && m === 'dot') return `<div class="c-dot" data-act="open"></div>`;
+  if (NOTCH && m === 'hi') return `<div class="c-hi n-row" data-act="open"><span class="nl">${slot(MINUS, 0.5)}<b>Minus</b></span><i class="ngap"></i><span class="nr"><span>All quiet</span></span></div>`;
   if (m === 'dot') return `<div class="c-dot" data-act="open">${slot(MINUS, 0.6)}</div>`;
   if (m === 'hi') return `<div class="c-hi" data-act="open">${slot(MINUS, 0.6)}<b>Minus</b><span>All quiet</span></div>`;
   if (m === 'sent') return `<div class="sent">${slot(sentNote.agent, 0.84)}<div><b>Sent to ${esc(sentNote.agent.name)}</b><br><span>${esc(sentNote.text)}</span></div></div>`;
@@ -101,8 +120,10 @@ function html(m) {
     const label = w.length > 1 ? `<b>${w.length} agents</b><span>working</span>` : w.length ? `<b>${esc(first.name)}</b><span>${esc(first.status)}</span>` : `<b>${esc(first.name)}</b><span>needs you</span>`;
     const avg = w.filter((x) => x.total).reduce((s, x) => [s[0] + x.done, s[1] + x.total], [0, 0]);
     const faceList = [...w, ...S.asks.map((q) => q.agent).filter((a) => !w.find((x) => x.id === a.id))].slice(0, 4);
+    const end = S.asks.length ? '<span class="ping" aria-label="Someone needs you"></span>' : avg[1] ? ring(avg[0], avg[1]) : '';
+    if (NOTCH) return `<div class="c-pill n-row" data-act="pin"><span class="nl"><span class="stack">${faceList.map((a) => slot(a, 0.5)).join('')}</span></span><i class="ngap"></i><span class="nr"><span class="p-text">${label}</span>${end}</span></div>`;
     return `<div class="c-pill" data-act="pin"><span class="stack">${faceList.map((a) => slot(a, 0.56)).join('')}</span>
-      <span class="p-text">${label}</span>${S.asks.length ? '<span class="ping" aria-label="Someone needs you"></span>' : avg[1] ? ring(avg[0], avg[1]) : ''}</div>`;
+      <span class="p-text">${label}</span>${end}</div>`;
   }
   if (m === 'open') {
     return `<div class="c-open"><div class="o-h"><span>${S.working.length ? `Working now · ${S.working.length}` : 'Waiting on you'}</span><button data-act="collapse" aria-label="Collapse">${ICON.up}</button></div>
@@ -149,6 +170,7 @@ function render(force = false) {
   const w = next.offsetWidth, h = next.offsetHeight;
   island.classList.toggle('asking', m === 'ask');
   island.classList.toggle('watching', m === 'watch');
+  document.documentElement.dataset.mode = m;
   // grow the window first, shrink it after
   fit(Math.max(w, size.w), Math.max(h, size.h));
   anim?.stop?.();
@@ -280,5 +302,7 @@ ch.onmessage = ({ data }) => {
   render();
 };
 ch.postMessage({ type: 'hello' });
-render(true);
-if (tauri) setTimeout(() => tauri.window.getCurrentWindow().show(), 120);
+findNotch().finally(() => {
+  render(true);
+  if (tauri) setTimeout(() => tauri.window.getCurrentWindow().show(), 120);
+});

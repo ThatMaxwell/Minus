@@ -190,6 +190,53 @@ fn keys_remove(app: AppHandle, slot: String) -> Result<(), String> {
     Ok(())
 }
 
+/* ───────── the MacBook notch: the island grows out of it ───────── */
+
+/// The notch's size in points, or nothing on screens without one (and off macOS).
+#[derive(Serialize, Clone, Copy)]
+struct NotchSize {
+    width: f64,
+    height: f64,
+}
+static NOTCH: Mutex<Option<NotchSize>> = Mutex::new(None);
+
+#[cfg(target_os = "macos")]
+mod notch {
+    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior, NSWindowSharingType};
+
+    /// The notch of the screen this window is on.
+    /// # Safety
+    /// `ns_window` is a live NSWindow, and this runs on the main thread.
+    pub unsafe fn of(ns_window: *mut std::ffi::c_void) -> Option<super::NotchSize> {
+        let w: &NSWindow = &*(ns_window as *const NSWindow);
+        let screen = w.screen()?;
+        let insets = screen.safeAreaInsets();
+        if insets.top <= 0.0 {
+            return None;
+        }
+        let (l, r) = (screen.auxiliaryTopLeftArea(), screen.auxiliaryTopRightArea());
+        let width = r.origin.x - (l.origin.x + l.size.width);
+        (width > 0.0).then_some(super::NotchSize { width, height: insets.top })
+    }
+
+    /// Above the menu bar, on every space and over full-screen apps, and left out of screenshots.
+    /// # Safety
+    /// As above.
+    pub unsafe fn raise(ns_window: *mut std::ffi::c_void) {
+        let w: &NSWindow = &*(ns_window as *const NSWindow);
+        w.setLevel(27); // the menu bar is 24
+        w.setCollectionBehavior(NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::Stationary | NSWindowCollectionBehavior::FullScreenAuxiliary | NSWindowCollectionBehavior::IgnoresCycle);
+        w.setHasShadow(false);
+        w.setSharingType(NSWindowSharingType::None);
+    }
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+fn dock_notch() -> Option<NotchSize> {
+    *NOTCH.lock().unwrap()
+}
+
 /// The dock sizes itself to its content (so it never blocks clicks around it) and stays
 /// centered at the top of the screen it's on, like an island.
 #[cfg(desktop)]
@@ -200,7 +247,9 @@ fn dock_fit(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
     let scale = mon.scale_factor();
     let (w, h) = ((width * scale).round() as u32, (height * scale).round() as u32);
     let x = mon.position().x + (mon.size().width as i32 - w as i32) / 2;
-    let y = mon.position().y + (10.0 * scale) as i32;
+    // with a notch it hangs from the very top of the screen; otherwise it floats just below
+    let gap = if NOTCH.lock().unwrap().is_some() { 0.0 } else { 10.0 };
+    let y = mon.position().y + (gap * scale) as i32;
     dock.set_size(PhysicalSize::new(w, h)).map_err(|e| e.to_string())?;
     dock.set_position(PhysicalPosition::new(x, y)).map_err(|e| e.to_string())?;
     Ok(())
@@ -241,6 +290,14 @@ fn make_dock(app: &AppHandle) -> tauri::Result<()> {
         .visible(false)
         .build()?;
     hide_from_capture(&dock);
+    #[cfg(target_os = "macos")]
+    if let Ok(p) = dock.ns_window() {
+        // setup runs on the main thread, which AppKit needs
+        unsafe {
+            notch::raise(p);
+            *NOTCH.lock().unwrap() = notch::of(p);
+        }
+    }
     Ok(())
 }
 
@@ -320,7 +377,7 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
 /// The commands the app's pages can call.
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, dock_fit, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
+    tauri::generate_handler![hands_windows, hands_look, hands_act, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
 }
 #[cfg(mobile)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {

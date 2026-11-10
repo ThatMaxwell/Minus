@@ -103,3 +103,25 @@ button:focus-visible, input:focus-visible { outline: 2px solid rgba(255,255,255,
 /* stand-up time */
 .c-morning { padding-left: 8px; }
 .c-morning .stack .slot + .slot { margin-left: -12px; }
+
+/* ───────── in the MacBook notch ───────── */
+.notch .island { border-radius: 0 0 var(--br, 22px) var(--br, 22px) !important; box-shadow: 0 10px 26px -8px rgba(0,0,0,.65), 0 2px 6px rgba(0,0,0,.35); }
+.notch[data-mode="dot"] .island { --br: 10px; box-shadow: none; }
+.notch[data-mode="hi"] .island, .notch[data-mode="pill"] .island { --br: 14px; }
+.notch .island.asking, .notch .island.watching { box-shadow: 0 10px 30px -8px rgba(0,0,0,.7); }
+.notch .c-dot { width: var(--nw); height: var(--nh); }
+.notch .n-row { display: grid; grid-template-columns: 1fr var(--nw) 1fr; align-items: center; height: var(--nh); padding: 0 14px; gap: 0; white-space: nowrap; }
+.notch .nl { justify-self: end; display: flex; align-items: center; gap: 7px; padding-right: 12px; }
+.notch .nr { justify-self: start; display: flex; align-items: center; gap: 8px; padding-left: 12px; }
+.notch .n-row b { font-size: 12.5px; } .notch .n-row span { font-size: 12px; }
+.notch .n-row .p-text { max-width: 200px; }
+.notch .stack .slot + .slot { margin-left: -10px; }
+/* everything bigger drops down below the notch */
+.notch .c-open, .notch .c-ask { padding-top: calc(var(--nh) + 8px); }
+.notch .c-watch, .notch .sent { height: auto; padding-top: calc(var(--nh) + 6px); padding-bottom: 10px; }
+/* the curves where the island meets the top edge of the screen */
+.ear { display: none; position: fixed; top: 0; width: 12px; height: 12px; pointer-events: none; z-index: 1; }
+.notch .ear { display: block; }
+.notch[data-mode="dot"] .ear { display: none; }
+.ear.l { left: calc(50% - var(--iw, 0px) / 2 - 11px); background: radial-gradient(circle at 0 100%, transparent 11.5px, #000 12px); }
+.ear.r { left: calc(50% + var(--iw, 0px) / 2 - 1px); background: radial-gradient(circle at 100% 100%, transparent 11.5px, #000 12px); }
