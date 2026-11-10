@@ -1,1 +1,6 @@
-fn main() { minus_desktop_lib::run() }
+// No console window next to the app on Windows (release builds)
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+fn main() {
+    minus_desktop_lib::run()
+}
