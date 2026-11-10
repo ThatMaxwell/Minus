@@ -106,20 +106,44 @@ jobs:
           echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+          targets: aarch64-linux-android
       - uses: Swatinem/rust-cache@v2
       - name: Install
         working-directory: apps/desktop
         run: npm ci
+      # an optimized build for 64-bit ARM, which is practically every Android phone in use
       - name: Build the APK
         working-directory: apps/desktop
         run: |
           [ -d src-tauri/gen/android ] || npx tauri android init --ci
-          npx tauri android build --apk --debug
+          npx tauri android build --apk --target aarch64
+      # Android only installs signed apps. With the ANDROID_KEYSTORE secret every build is
+      # signed by the same key, so a new version installs over the old one; without it a
+      # one-off key is made (the app works, but updating means uninstalling first).
+      - name: Sign the APK
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          APK=$(find apps/desktop/src-tauri/gen/android/app/build/outputs/apk -name '*release*.apk' | head -1)
+          echo "built: $APK ($(du -h "$APK" | cut -f1))"
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > minus.jks; PASS="$KEYSTORE_PASS"
+          else
+            PASS=minus-preview
+            keytool -genkeypair -keystore minus.jks -storepass "$PASS" -keypass "$PASS" -alias minus -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Minus"
+          fi
+          mkdir -p signed
+          "$BT/zipalign" -f -p 4 "$APK" aligned.apk
+          "$BT/apksigner" sign --ks minus.jks --ks-pass "pass:$PASS" --key-pass "pass:$PASS" --out signed/Minus-Android.apk aligned.apk
+          "$BT/apksigner" verify signed/Minus-Android.apk
+          ls -la signed
+          rm -f minus.jks
       - uses: actions/upload-artifact@v4
         with:
           name: Minus-Android
-          path: apps/desktop/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: signed/Minus-Android.apk
 
   # direct downloads, no zips: every build of main becomes the "latest" release
   release:
