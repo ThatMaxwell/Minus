@@ -1,0 +1,16 @@
+[package]
+name = "tauri-plugin-island"
+version = "0.1.0"
+description = "Minus on Android: your agents in a floating island over other apps"
+authors = ["ThatMaxwell"]
+license = "MIT"
+edition = "2021"
+links = "tauri-plugin-island"
+
+[dependencies]
+tauri = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

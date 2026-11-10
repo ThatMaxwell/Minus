@@ -628,3 +628,77 @@ html.calm *, html.calm *::before { animation-play-state: paused !important; }
 .fchip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .fchip .i { width: 14px; height: 14px; flex: none; color: var(--fg-2); }
 .fchip button { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 6px; color: var(--fg-3); } .fchip button:hover { background: var(--bg-4); color: var(--fg); } .fchip button .i { width: 12px; height: 12px; }
 .m.me .m-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; } .m.me .fchip { background: rgba(0,0,0,.08); color: #19191b; box-shadow: none; padding-right: 10px; } .m.me .fchip .i { color: #55554f; }
+
+/* ───────── the phone: one column, tabs at the bottom, big touch targets ───────── */
+.ch-back, .tabs { display: none; }
+.phone body { overflow: hidden; }
+.phone .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; height: 100dvh; }
+.phone .titlebar, .phone .side, .phone .dock-frame { display: none !important; }
+.phone .main { grid-column: 1; grid-row: 1; min-height: 0; padding-top: env(safe-area-inset-top); }
+.phone .tabs { grid-column: 1; grid-row: 2; display: flex; justify-content: space-around; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: rgba(13,13,15,.92); backdrop-filter: blur(16px); }
+.phone .tabs button { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 0 4px; border-radius: 12px; color: var(--fg-3); font-size: 11px; font-weight: 500; }
+.phone .tabs button .i { width: 22px; height: 22px; }
+.phone .tabs button.on { color: var(--fg); }
+.phone .tabs .count { position: absolute; top: 2px; left: calc(50% + 6px); min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; background: var(--amber); color: #0b0b0c; font: 600 10.5px/17px var(--sans); }
+/* home */
+.home { height: 100%; overflow: auto; padding: 14px 16px 28px; }
+.hm-h { display: flex; align-items: center; gap: 8px; height: 48px; }
+.hm-logo { font: 400 26px var(--serif); letter-spacing: -.02em; }
+.hm-h .icon-btn { width: 42px; height: 42px; } .hm-h .icon-btn .i { width: 22px; height: 22px; }
+.hm-card { display: flex; align-items: center; gap: 14px; margin: 10px 0; padding: 16px; border-radius: 18px; background: var(--surface); box-shadow: var(--hi); }
+.hm-card.hm-pair { background: linear-gradient(180deg, rgba(95,207,166,.09), rgba(95,207,166,.02)); box-shadow: inset 0 0 0 1px rgba(95,207,166,.22); }
+.hm-card b { font-size: 15px; } .hm-card p { margin: 4px 0 0; font-size: 13px; line-height: 1.45; color: var(--fg-2); }
+.hm-card .btn { flex: none; height: 38px; gap: 6px; }
+.hm-ic { width: 42px; height: 42px; flex: none; display: grid; place-items: center; border-radius: 13px; background: var(--bg-3); color: var(--mint); } .hm-ic .i { width: 21px; height: 21px; }
+.hm-sec { margin: 22px 4px 10px; font: 600 12px var(--sans); text-transform: uppercase; letter-spacing: .05em; color: var(--fg-3); }
+.hm-needs, .hm-list { display: grid; gap: 8px; }
+.hm-need, .hm-row { width: 100%; display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 18px; background: var(--bg-1); box-shadow: var(--hi); text-align: left; }
+.hm-need { background: linear-gradient(180deg, rgba(245,169,79,.08), rgba(245,169,79,.02)); box-shadow: inset 0 0 0 1px rgba(245,169,79,.22); }
+.hm-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hm-t b { font-size: 15.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-t small { font-size: 13px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-need > .i { color: var(--fg-3); }
+.hm-r { display: flex; align-items: center; gap: 8px; }
+.hm-saved { width: 100%; display: flex; align-items: center; gap: 12px; margin-top: 20px; padding: 16px; border-radius: 18px; background: var(--bg-1); box-shadow: var(--hi); color: var(--fg-2); font-size: 14px; }
+.hm-saved > .i:first-child { color: var(--mint); width: 20px; height: 20px; } .hm-saved span { flex: 1; text-align: left; } .hm-saved b { color: var(--fg); }
+/* chat on the phone */
+.phone .ch-back { display: grid; margin-left: -6px; }
+.phone .ch-h { padding: 8px 10px; gap: 6px; }
+.phone .ch-tools > .chip, .phone .ch-tools > .sep, .phone .ch-tools > [data-act="look"], .phone .ch-tools > [data-act="panel"], .phone .ch-tools > [data-act="teach"], .phone .ch-tools > [data-act="rewind"] { display: none; }
+.phone .ch-tools > .icon-btn { opacity: 1 !important; transform: none !important; width: 40px; height: 40px; }
+.phone .chat .ch-body { grid-template-columns: minmax(0, 1fr) !important; }
+.phone .chat .pc-panel { display: none !important; }
+.phone .thread { padding: 16px 14px 10px; }
+.phone .m.me { max-width: 86%; }
+.phone .card { width: 100%; }
+.phone .composer { padding: 8px 10px 10px; }
+.phone .cmp-hint { display: none; }
+.phone .cmp-row > .icon-btn, .phone .cmp-row > .chip { opacity: 1 !important; transform: none !important; }
+.phone .cmp-row > .chip { display: none; }
+.phone .cmp-box textarea { font-size: 16px; }
+/* the other pages, narrow */
+.phone .page, .phone .room, .phone .su { padding: 16px 16px 24px; }
+.phone .su { overflow: auto; }
+.phone .su-h p, .phone .rm-h p { margin-left: 0; }
+.phone .su-h h1, .phone .rm-h h1 { font-size: 24px; }
+.phone .su-tools .btn span { display: none; }
+.phone .su-stage { height: 170px; margin: 4px -16px 0; }
+.phone .su-a { width: 104px; }
+.phone .su-say { font-size: 17px; }
+.phone .su-cols, .phone .rm-parts { grid-template-columns: 1fr; }
+.phone .su-f { position: sticky; bottom: 0; padding: 12px 0 4px; background: linear-gradient(180deg, transparent, var(--bg) 30%); }
+.phone .rm-ask { padding: 14px; }
+.phone .rm-ask textarea { font-size: 17px; }
+.phone .rm-grid { grid-template-columns: 1fr; }
+.phone .rm-go { flex-direction: column; align-items: stretch; } .phone .rm-go .btn { justify-content: center; }
+.phone .set-row { flex-wrap: wrap; }
+.phone .sheet { max-width: 100vw; width: 100vw !important; align-self: end; border-radius: 22px 22px 0 0; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+.phone .practice { left: 12px !important; right: 12px; width: auto; top: 80px; }
+.phone .home, .phone .home button { text-align: left; }
+.phone .ap { grid-template-columns: 54px minmax(0, 1fr); grid-template-areas: "f t" "b b"; padding: 16px; gap: 12px 14px; }
+.phone .ap > .face { grid-area: f; } .phone .ap-t { grid-area: t; } .phone .ap-b { grid-area: b; justify-content: flex-end; }
+.phone .ap-b .btn { height: 40px; padding: 0 16px; }
+.phone .su-stage { height: 150px; }
+.phone .su-a { transform: scale(.56); opacity: .5; }
+.phone .su-a.on { transform: scale(.92); opacity: 1; }
+.phone .su-btns .btn { height: 40px; padding: 0 18px; }

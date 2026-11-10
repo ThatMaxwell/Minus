@@ -20,7 +20,8 @@
     "core:window:allow-set-position",
     "core:window:allow-unminimize",
     "opener:default",
-    "deep-link:default"
+    "deep-link:default",
+    "island:default"
   ],
   "platforms": [
     "windows",

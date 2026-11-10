@@ -349,6 +349,7 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_island::init())
         .manage(HandsState::default())
         .manage(Teach::default())
         .invoke_handler(handlers())

@@ -24,6 +24,7 @@ export function chat(main) {
   main.innerHTML = `
     <section class="chat ${state.panel ? 'with-panel' : ''}">
       <header class="ch-h">
+        <button class="icon-btn ch-back" data-act="back" aria-label="Back to your agents">${icon('back')}</button>
         <div class="ch-who">
           ${face(a, 46, 'data-follow="1"')}
           <div class="ch-id"><b>${esc(a.name)}</b><span class="ch-status"><i class="dot ${STATUS[a.status]?.tone}"></i><span>${esc(a.statusText || STATUS[a.status]?.label)}</span></span></div>
@@ -265,6 +266,7 @@ export function chat(main) {
     }
     if (act === 'computer') return menu(b, state.computers.map((c) => ({ label: c.name, checked: c.id === a.computer, icon: c.kind === 'local' ? 'laptop' : 'cloud', run: () => { updateAgent(a.id, { computer: c.id }); toast(`${a.name} moved to ${c.name}`); react(a.id, c.kind === 'local' ? 'peek' : 'yes'); chat(main); } })));
     if (act === 'look') return openCreate({ edit: a.id, step: 0 });
+    if (act === 'back') return go('home');
     if (act === 'teach') return teach.start(a.id);
     if (act === 'rewind') return rewind();
     if (act === 'pause') {

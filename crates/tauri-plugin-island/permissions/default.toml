@@ -1,0 +1,4 @@
+"$schema" = "schemas/schema.json"
+[default]
+description = "Lets the app check and ask for the 'Display over other apps' permission, and show or hide the island"
+permissions = ["allow-status", "allow-ask", "allow-show", "allow-hide"]

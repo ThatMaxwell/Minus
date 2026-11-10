@@ -1,6 +1,6 @@
 // Minus app preview: the desktop app's interface running in the browser.
-import { state, load, on, agent, go, save } from './store.js';
-import { $, tooltips, icon, isMac } from './ui.js';
+import { state, load, on, agent, go, save, pendingApprovals } from './store.js';
+import { $, $$, tooltips, icon, isMac } from './ui.js';
 import { installDefs, avatarSVG, COLORS } from '../js/shape.js';
 import { keepNames } from '../js/names.js';
 import { idleWatch } from './director.js';
@@ -14,6 +14,9 @@ import { startHandoffs } from './handoff.js';
 import { startMeter } from './saved.js';
 import { startMoods } from './moods.js';
 import { startDrop } from './drop.js';
+import { home, leaveHome } from './views/home.js';
+import * as link from './link.js';
+import { startIsland } from './island.js';
 import * as su from './standup.js';
 import { openCreate } from './views/create.js';
 import { autoRead, stopSpeaking, speaking } from './voice.js';
@@ -25,6 +28,10 @@ const tauri = window.__TAURI__;
 
 load();
 installDefs();
+// the phone: one column, tabs at the bottom, and it controls agents instead of running them
+const phone = link.isPhone() || new URLSearchParams(location.search).has('phone');
+document.documentElement.classList.toggle('phone', phone);
+if (phone) state.route = { ...state.route, view: 'home' };
 document.documentElement.classList.toggle('calm', !state.settings.lively);
 
 const app = $('#app');
@@ -35,12 +42,24 @@ app.innerHTML = `
     <div class="tb-r"><button class="icon-btn" data-go-approvals data-tip="Approvals">${icon('bell')}</button><button class="icon-btn" data-help data-tip="Keyboard shortcuts">${icon('keyboard')}</button>${tauri && !isMac ? `<span class="wc"><button data-wc="min" aria-label="Minimize"><svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg></button><button data-wc="max" aria-label="Maximize"><svg viewBox="0 0 12 12"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="1"/></svg></button><button data-wc="close" class="wc-x" aria-label="Close to the tray"><svg viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button></span>` : ''}</div>
   </header>
   <aside class="side" aria-label="Agents and places"></aside>
-  <main class="main" id="main"></main>`;
+  <main class="main" id="main"></main>
+  ${phone ? `<nav class="tabs" aria-label="Places">${[['home', 'inbox', 'Agents'], ['approvals', 'bell', 'Needs you'], ['standup', 'sunrise', 'Stand-up'], ['room', 'room', 'Ask'], ['settings', 'gear', 'Settings']].map(([v, i, t]) => `<button data-tab="${v}">${icon(i)}<span>${t}</span>${v === 'approvals' ? '<b class="count" hidden></b>' : ''}</button>`).join('')}</nav>` : ''}`;
 
 sidebar($('.side'));
 const main = $('.main');
-const views = { chat, approvals, routines, computers, settings, standup, room };
-const render = () => { main.onclick = null; leaveChat(); (views[state.route.view] || chat)(main); };
+const views = { chat, approvals, routines, computers, settings, standup, room, home };
+const render = () => {
+  main.onclick = null; leaveChat(); leaveHome();
+  (views[state.route.view] || (phone ? home : chat))(main);
+  if (phone) { $$('.tabs [data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === state.route.view)); const n = pendingApprovals().length, c = $('.tabs .count'); c.hidden = !n; c.textContent = n; }
+};
+if (phone) {
+  $('.tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) go(b.dataset.tab); });
+  on('approvals', () => { const n = pendingApprovals().length, c = $('.tabs .count'); c.hidden = !n; c.textContent = n; });
+  // Android's back button: from anywhere back to the agents
+  addEventListener('popstate', () => { if (state.route.view !== 'home') go('home'); });
+  on('route', (r) => { if (r.view !== 'home') history.pushState({}, ''); });
+}
 on('route', render);
 on('agents', () => { if (state.route.view === 'chat') { if (!agent(state.route.agent)) state.route.agent = state.agents[0]?.id; render(); } });
 render();
@@ -83,6 +102,8 @@ startMeter();
 startMoods();
 startDrop();
 account.start();
+link.start();
+startIsland();
 runtime.listen();
 idleWatch(90000);
 // stand-up time: the dock offers it (see bridge.js); check once a minute

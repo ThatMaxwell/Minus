@@ -8,6 +8,7 @@ import { VOICES, voiceOf, cap, getKey, setKey, hasKey, readMode, speak, stopSpea
 import { updateAgent } from '../store.js';
 import * as acct from '../account.js';
 import * as rt from '../runtime.js';
+import * as island from '../island.js';
 
 const head = (title, sub, actions = '') => `<header class="pg-h"><div><h1>${title}</h1><p class="muted">${sub}</p></div><div class="pg-act">${actions}</div></header>`;
 let off = [];
@@ -149,6 +150,7 @@ export function settings(main) {
         ${tog('lively', 'Lively agents', 'They look around, blink and react to what you do')}
         ${tog('notify', 'Notify me', 'When an agent needs your OK or finishes a job')}
         ${tog('sounds', 'Sounds', 'Soft sounds for approvals and finished work')}
+        ${island.supported() ? `<div class="set-row" id="isl-row"><span class="set-t"><b>Floating island</b><small>Checking…</small></span><span class="isl-act"></span></div>` : ''}
         <div class="set-row"><span class="set-t"><b>Morning stand-up</b><small>${state.settings.standup === false ? 'Off' : `Every day at ${esc(state.settings.standupAt || '09:00')}, the island offers it`}</small></span>
           <input class="field time-in" type="time" value="${esc(state.settings.standupAt || '09:00')}" data-sutime aria-label="Stand-up time" ${state.settings.standup === false ? 'disabled' : ''}>
           <button class="switch ${state.settings.standup === false ? '' : 'on'}" role="switch" aria-checked="${state.settings.standup !== false}" data-sutoggle aria-label="Morning stand-up"><i></i></button></div>
@@ -159,7 +161,17 @@ export function settings(main) {
     </section>`;
     mountMascots(main, agent);
     fillDevices();
+    fillIsland();
   };
+  // the phone's island needs Android's "Display over other apps"
+  const fillIsland = async () => {
+    const row = $('#isl-row', main); if (!row) return;
+    const s = await island.status(), on_ = island.enabled();
+    $('small', row).textContent = !on_ ? 'Off' : s.granted ? 'Shows your agents over other apps while Minus is closed' : 'Needs “Display over other apps” from Android';
+    $('.isl-act', row).innerHTML = on_ && !s.granted ? `<button class="btn btn-primary btn-sm" data-islallow>Allow</button>` : `<button class="switch ${on_ ? 'on' : ''}" role="switch" aria-checked="${on_}" data-isltoggle aria-label="Floating island"><i></i></button>`;
+  };
+  const vis = () => document.visibilityState === 'visible' && fillIsland();
+  document.addEventListener('visibilitychange', vis); off.push(() => document.removeEventListener('visibilitychange', vis));
   const fillDevices = async () => {
     const list = $('#dev-list', main); if (!list) return;
     const mine = acct.deviceId(), ds = await acct.devices();
@@ -184,6 +196,8 @@ export function settings(main) {
       if (k === 'lively') document.documentElement.classList.toggle('calm', !state.settings.lively);
     }
     if (e.target.closest('[data-sutoggle]')) { state.settings.standup = state.settings.standup === false; save(); emit('standup'); return draw(); }
+    if (e.target.closest('[data-islallow]')) return island.allow();
+    if (e.target.closest('[data-isltoggle]')) { state.settings.island = !island.enabled(); save(); emit('settings'); return fillIsland(); }
     if (e.target.closest('[data-reset]')) reset();
     const ac = e.target.closest('[data-acct]');
     if (ac) {
