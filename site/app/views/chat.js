@@ -1,5 +1,5 @@
 // A conversation with one agent, its live computer, and the composer.
-import { state, on, agent, computer, updateAgent, go, emit, save, providerState, post, id, APP } from '../store.js';
+import { state, on, agent, computer, updateAgent, go, emit, save, providerState, post, id, APP, patchMessage } from '../store.js';
 import { $, $$, esc, icon, face, mountMascots, mascotsOf, menu, sheet, toast, motion, IN, mod, timeAgo } from '../ui.js';
 import { react } from '../director.js';
 import { respond, choose, resolve } from '../brain.js';
@@ -84,7 +84,7 @@ export function chat(main) {
   const render = () => {
     const msgs = state.threads[a.id] || [];
     let prev = null;
-    thread.innerHTML = msgs.map((m) => { const h = msgHTML(a, m, prev); prev = m; return h; }).join('') + `<div class="typing" hidden><span class="face-dots">${face(a, 22)}</span><span class="dots"><i></i><i></i><i></i></span></div>`;
+    thread.innerHTML = msgs.map((m) => { const h = msgHTML(a, m, prev); prev = m; return h; }).join('') + `<div class="typing" ${a.status === 'working' && a.statusText === 'Thinking…' ? '' : 'hidden'}><span class="face-dots">${face(a, 22)}</span><span class="dots"><i></i><i></i><i></i></span></div>`;
     mountMascots(thread, agent);
     thread.scrollTop = thread.scrollHeight;
   };
@@ -121,6 +121,16 @@ export function chat(main) {
     if (c) { const card = c.closest('[data-mid]'); return choose(a.id, card.dataset.mid, c.dataset.choice); }
     const cn = e.target.closest('[data-connect]');
     if (cn) return connect(cn.dataset.connect, () => {});
+    const hr = e.target.closest('[data-here]');
+    if (hr) {
+      // your PC is off: the phone answers it instead (and tells the PC not to, later)
+      const mid = hr.closest('[data-mid]').dataset.mid, m = (state.threads[a.id] || []).find((x) => x.mid === mid);
+      if (!m || m.here) return;
+      patchMessage(a.id, mid, { here: true });
+      const you = m.about ? (state.threads[a.id] || []).find((x) => x.mid === m.about) : null;
+      if (you) patchMessage(a.id, you.mid, { answeredOn: 'phone' });
+      return respond(a.id, m.text, { here: true });
+    }
     const r = e.target.closest('[data-run-skill]');
     if (r) return teach.run(a.id, r.dataset.runSkill);
     if (e.target.closest('[data-open-skills]')) return nb.open(main, a.id, 'skills');
@@ -425,7 +435,19 @@ export function msgHTML(a, m, prev, cont) {
   const head = sameRun ? '<span class="gutter"></span>' : face(a, 26);
   const name = sameRun ? '' : `<b class="who">${esc(a.name)} <time>${m.at ? timeAgo(m.at) : ''}</time></b>`;
   let body = '';
-  if (m.kind === 'needai') {
+  if (m.kind === 'pcoff' || (m.kind === 'needai' && m._remote)) {
+    // on the phone: this agent works on your PC, which is off or can't answer right now
+    const p = provider(m.provider);
+    const head = m.kind === 'needai' ? `Your PC needs ${esc(p.name)}` : m.why === 'slow' ? 'Your PC hasn’t picked this up' : 'Your PC is off';
+    const what = m.kind === 'needai' ? `${esc(a.name)} works on your PC, and ${esc(p.name)} isn’t connected there yet. Connect it on the PC in Settings → Your AI.`
+      : m.why === 'none' ? `${esc(a.name)} works on your PC, and Minus hasn’t been opened there yet.`
+      : m.why === 'slow' ? `${esc(a.name)} works on your PC, and it hasn’t answered yet. Minus may be closed there, or busy.`
+      : `${esc(a.name)} works on your PC, and Minus isn’t open there right now. It’ll pick this up when your PC is back.`;
+    body = `<div class="card need-ai pc-off"><div class="card-h">${icon('laptop')}<span>${head}</span></div>
+      <p class="ask-what">${what}</p>
+      <p class="ask-detail">Or answer from this phone now, with this phone’s AI. Same agent, it just can’t use the computer from here.</p>
+      ${m.here ? `<p class="ask-done">${icon('check')}Answered from this phone.</p>` : m.text ? `<div class="ask-btns"><button class="btn btn-primary btn-sm" data-here>${icon('phone')}<span>Answer from this phone</span></button></div>` : ''}</div>`;
+  } else if (m.kind === 'needai') {
     const p = provider(m.provider);
     body = `<div class="card need-ai"><div class="card-h">${icon('key')}<span>Needs an AI to think with</span></div>
       <p class="ask-what">${esc(a.name)} uses ${esc(p.name)}, and it isn’t connected yet.</p>

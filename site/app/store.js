@@ -7,7 +7,7 @@ import { SEED_AGENTS, SEED_THREADS, SEED_ROUTINES, COMPUTERS, PROVIDERS, DEFAULT
 export const APP = !!window.__TAURI__ && !new URLSearchParams(location.search).has('demo');
 const KEY = APP ? 'minus.app.v2' : 'minus.app.v1';
 const os = () => (/Android/i.test(navigator.userAgent) ? 'Android' : /Mac/.test(navigator.platform) ? 'macOS' : /Win/.test(navigator.platform) ? 'Windows' : 'Linux');
-const HERE = () => [{ id: 'here', name: 'This computer', kind: 'local', status: 'connected', region: 'Your desk', os: os() }];
+const HERE = () => [/Android/i.test(navigator.userAgent) ? { id: 'here', name: 'This phone', kind: 'local', status: 'connected', region: 'In your pocket', os: 'Android' } : { id: 'here', name: 'This computer', kind: 'local', status: 'connected', region: 'Your desk', os: os() }];
 const listeners = new Map();
 let uid = Date.now();
 

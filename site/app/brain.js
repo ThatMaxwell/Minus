@@ -39,11 +39,12 @@ const plan = (text) => {
   return ['Open the browser', 'Search for what you asked', 'Read the top results', 'Take notes', 'Put it together'];
 };
 
-export async function respond(aid, text) {
+export async function respond(aid, text, { here = false } = {}) {
   const a = agent(aid); if (!a) return;
   if (answer(aid, text.trim())) return;
-  // on the phone, your message goes to your PC (link.js); the agents work there
-  if (link.isPhone() && link.linked()) return;
+  // on the phone, a message to one of your PC's agents goes to the PC (link.js), unless you
+  // asked the phone to answer it; agents made on the phone work right here
+  if (!here && link.isPhone() && link.linked() && a.home === 'pc') return link.relayed(aid, text);
   // the real runtime, when this agent's AI is connected (desktop app)
   if (rt.answer(aid, text.trim())) return;
   if (rt.ready(a)) {
@@ -138,7 +139,7 @@ function needsAI(aid, text) {
   const a = agent(aid);
   waitingForAI.set(aid, text);
   const last = (state.threads[aid] || []).at(-1);
-  if (last?.kind !== 'needai') post(aid, { from: 'agent', kind: 'needai', provider: a.model });
+  if (last?.kind !== 'needai') post(aid, { from: 'agent', kind: 'needai', provider: a.model, text });
   updateAgent(aid, { status: 'idle', statusText: 'Needs an AI' });
   react(aid, 'confused');
 }
@@ -157,7 +158,7 @@ export function aiConnected(pid) {
 
 export async function choose(aid, mid, choice) {
   const m = (state.threads[aid] || []).find((x) => x.mid === mid);
-  if (link.isPhone() && link.linked()) { patchMessage(aid, mid, { chosen: choice }); react(aid, 'yes'); return; }
+  if (link.isPhone() && m?._remote) { patchMessage(aid, mid, { chosen: choice }); react(aid, 'yes'); return; }
   if (m?.call) { patchMessage(aid, mid, { chosen: choice }); post(aid, { from: 'me', text: choice }); rt.reply(aid, m, choice); react(aid, 'yes'); return; }
   if (m) patchMessage(aid, mid, { chosen: choice });
   post(aid, { from: 'me', text: choice });
@@ -227,7 +228,7 @@ export async function resolve(aid, mid, decision) {
   const m = (state.threads[aid] || []).find((x) => x.mid === mid || x.id === mid);
   patchMessage(aid, mid, { state: decision });
   emit('approvals');
-  if (link.isPhone() && link.linked()) { react(aid, decision === 'approved' ? 'approved' : 'rejected'); return; }
+  if (link.isPhone() && m?._remote) { react(aid, decision === 'approved' ? 'approved' : 'rejected'); return; }
   if (m?.call) { react(aid, decision === 'approved' ? 'approved' : 'rejected'); rt.reply(aid, m, decision); return; }
   if (decision === 'approved') {
     react(aid, 'approved');

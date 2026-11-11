@@ -292,10 +292,10 @@ export function connect(pid, done) {
   const p = provider(pid), eng = rt.ENGINES[pid] || {}, ps = providerState(pid) || {};
   const local = p.local, custom = eng.custom;
   const s = sheet(`<form class="mini-form"><h3>${p.icon} Connect ${p.name}</h3>
-    <p class="muted small">${local ? 'Minus talks to Ollama on this computer. Install it from ollama.com and pull a model first.' : `Paste an API key${eng.where ? ` from <b>${esc(eng.where)}</b>` : ''}. It’s kept in this computer’s password store and only ever sent to ${esc(p.by && !custom ? p.by : 'that provider')}.`}</p>
+    <p class="muted small">${local ? 'Minus talks to Ollama on this computer. Install it from ollama.com and pull a model first.' : `Paste an API key${eng.where ? ` from <b>${esc(eng.where)}</b>` : ''}. It’s kept on this ${/Android/i.test(navigator.userAgent) ? 'phone' : 'computer’s password store'} and only ever sent to ${esc(p.by && !custom ? p.by : 'that provider')}.`}</p>
     ${local ? '' : `<label class="lbl" for="ck">API key</label><input id="ck" class="field mono" type="password" name="k" placeholder="${esc(eng.keyHint || 'API key')}" ${ps.connected ? '' : 'required'} autocomplete="off" spellcheck="false">`}
-    <label class="lbl" for="cm">Model</label><input id="cm" class="field mono" name="m" value="${esc(ps.modelId || eng.model || '')}" placeholder="model name" ${custom ? 'required' : ''} autocomplete="off" spellcheck="false">
-    <p class="hint-line">${pid === 'claude' ? 'Claude Opus 5.5 is the default: the best at planning work on a computer.' : 'Change it if your account uses a different model name.'}</p>
+    <label class="lbl" for="cm">Model</label><input id="cm" class="field mono" name="m" value="${esc(ps.modelId || eng.model || '')}" placeholder="model name" list="cm-list" ${custom ? 'required' : ''} autocomplete="off" spellcheck="false"><datalist id="cm-list">${(ps.models || []).map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
+    <p class="hint-line">${pid === 'claude' ? 'Claude Opus 5.5 is the default: the best at planning work on a computer.' : 'Minus tries your key when you connect, and picks a model your account has if this one isn’t there.'}</p>
     ${local || custom ? `<label class="lbl" for="cu">Address</label><input id="cu" class="field mono" name="u" value="${esc(ps.baseUrl || (local ? 'http://localhost:11434/v1' : ''))}" placeholder="https://…/v1" ${custom ? 'required' : ''} autocomplete="off" spellcheck="false">` : ''}
     <p class="hint-line warn" data-err></p>
     <div class="row-end"><button type="button" class="btn btn-quiet btn-sm" data-x>Cancel</button><button class="btn btn-primary btn-sm">Connect</button></div></form>`, { cls: 'small' });
@@ -303,17 +303,27 @@ export function connect(pid, done) {
   setTimeout(() => $('input', s.el)?.focus(), 30);
   $('form', s.el).onsubmit = async (e) => {
     e.preventDefault();
-    const f = new FormData(e.target), k = String(f.get('k') || '').trim();
-    try {
-      if (k && rt.desktop) await rt.setKey(pid, k);
-    } catch (err) { $('[data-err]', s.el).textContent = `Couldn’t save the key: ${err?.message || err}`; return; }
+    const f = new FormData(e.target), k = String(f.get('k') || '').trim(), err = $('[data-err]', s.el), go = $('.btn-primary', s.el);
+    let model = String(f.get('m') || '').trim() || eng.model, models = [], swapped = '';
+    const baseUrl = f.has('u') ? String(f.get('u') || '').trim() : '';
+    if (rt.desktop) {
+      // try the key for real before saving it: a wrong key is caught here, with the provider's reason
+      go.disabled = true; go.textContent = 'Checking…'; err.textContent = '';
+      try { models = (await rt.check(pid, k, model, baseUrl, p.name)) || []; }
+      catch (x) { err.textContent = String(x?.message || x); go.disabled = false; go.textContent = 'Connect'; return; }
+      const best = custom || local ? model : rt.pickModel(pid, models, model);
+      if (best !== model) { swapped = model; model = best; }
+      try { if (k) await rt.setKey(pid, k); }
+      catch (x) { err.textContent = `Couldn’t save the key: ${x?.message || x}`; go.disabled = false; go.textContent = 'Connect'; return; }
+    }
     const st = providerState(pid);
     st.connected = true;
     if (k) st.key = '•••• ' + k.slice(-4);
-    st.modelId = String(f.get('m') || '').trim() || eng.model;
-    if (f.has('u')) st.baseUrl = String(f.get('u') || '').trim();
+    st.modelId = model;
+    if (models.length) st.models = models;
+    if (f.has('u')) st.baseUrl = baseUrl;
     save(); s.close(); done();
-    toast(rt.desktop ? `${p.name} connected. Agents using it now work for real.` : `${p.name} connected`);
+    toast(swapped ? `${p.name} connected. ${swapped} isn’t on your account, so agents use ${model}.` : rt.desktop ? `${p.name} connected and working. Agents using it now work for real.` : `${p.name} connected`);
     import('../brain.js').then((b) => b.aiConnected(pid));
   };
 }

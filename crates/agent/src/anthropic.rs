@@ -35,15 +35,15 @@ pub struct Compat {
     no_eager: bool,
 }
 
-fn body(brain: &Brain, system: &str, messages: &[Value], c: &Compat) -> (Value, Vec<&'static str>) {
+fn body(brain: &Brain, system: &str, messages: &[Value], c: &Compat, computer: bool) -> (Value, Vec<&'static str>) {
     let mut betas = Vec::new();
-    let mut tools: Vec<Value> = crate::tools::custom_tools();
+    let mut tools: Vec<Value> = crate::tools::custom_tools(computer);
     if !c.no_eager {
         for t in tools.iter_mut() {
             t["eager_input_streaming"] = json!(true);
         }
     }
-    if !c.no_computer {
+    if computer && !c.no_computer {
         tools.push(json!({"type": "computer_toolset_20260801", "configs": {"zoom": {"enabled": false}}}));
     }
     let mut thinking = json!({"type": "adaptive"});
@@ -125,11 +125,11 @@ fn friendly(status: u16, msg: &str) -> String {
     }
 }
 
-pub async fn turn(http: &reqwest::Client, brain: &Brain, system: &str, messages: &[Value], compat: &mut Compat, emit: &Arc<dyn Fn(Event) + Send + Sync>, stop: &Arc<AtomicBool>) -> Result<Turn, AgentError> {
+pub async fn turn(http: &reqwest::Client, brain: &Brain, system: &str, messages: &[Value], compat: &mut Compat, computer: bool, emit: &Arc<dyn Fn(Event) + Send + Sync>, stop: &Arc<AtomicBool>) -> Result<Turn, AgentError> {
     let mut attempt = 0;
     loop {
         attempt += 1;
-        let (b, betas) = body(brain, system, messages, compat);
+        let (b, betas) = body(brain, system, messages, compat, computer);
         let mut req = http.post(URL).header("x-api-key", &brain.key).header("anthropic-version", VERSION).header("content-type", "application/json").json(&b);
         if !betas.is_empty() {
             req = req.header("anthropic-beta", betas.join(","));
@@ -138,7 +138,7 @@ pub async fn turn(http: &reqwest::Client, brain: &Brain, system: &str, messages:
         let status = resp.status().as_u16();
         if status != 200 {
             let text = resp.text().await.unwrap_or_default();
-            let msg = serde_json::from_str::<Value>(&text).ok().and_then(|v| v["error"]["message"].as_str().map(String::from)).unwrap_or(text);
+            let msg = crate::api_message(&text);
             if status == 400 && attempt < 9 && degrade(compat, &msg) {
                 continue;
             }
@@ -309,7 +309,7 @@ mod tests {
     }
     #[test]
     fn request_shape() {
-        let (b, betas) = body(&brain(), "sys", &[json!({"role": "user", "content": "hi"})], &Compat::default());
+        let (b, betas) = body(&brain(), "sys", &[json!({"role": "user", "content": "hi"})], &Compat::default(), true);
         assert_eq!(b["model"], "claude-opus-5-5");
         assert_eq!(b["thinking"]["type"], "adaptive");
         assert_eq!(b["output_config"]["effort"], "medium");

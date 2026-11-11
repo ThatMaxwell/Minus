@@ -89,11 +89,12 @@ async fn complete(http: &reqwest::Client, brain: &Brain, system: &str, user: &st
                 (v["choices"][0]["message"]["content"].as_str().unwrap_or("").trim().to_string(), v["usage"]["prompt_tokens"].as_u64().unwrap_or(0), v["usage"]["completion_tokens"].as_u64().unwrap_or(0))
             });
         }
-        let msg = v["error"]["message"].as_str().map(String::from).unwrap_or(text);
+        let msg = crate::api_message(&text);
         last = match status {
-            401 | 403 => format!("{} didn't accept the API key. Check it in Settings → Your AI.", brain.provider),
-            404 => format!("{} doesn't have the model \"{}\".", brain.provider, brain.model),
-            _ => format!("{}: {msg}", brain.provider),
+            401 | 403 => format!("{} didn't accept the API key ({msg}). Check it in Settings → Your AI.", crate::provider_name(&brain.provider)),
+            400 if msg.to_lowercase().contains("key") => format!("{} didn't accept the API key ({msg}). Check it in Settings → Your AI.", crate::provider_name(&brain.provider)),
+            404 => format!("{} doesn't have the model \"{}\".", crate::provider_name(&brain.provider), brain.model),
+            _ => format!("{}: {msg}", crate::provider_name(&brain.provider)),
         };
         if status == 429 || status >= 500 {
             tokio::time::sleep(std::time::Duration::from_millis(1200 * attempt)).await;

@@ -17,7 +17,7 @@ export const ENGINES = {
   claude: { provider: 'anthropic', model: 'claude-opus-5-5', keyHint: 'sk-ant-…', where: 'console.anthropic.com' },
   chatgpt: { provider: 'openai', model: 'gpt-5', keyHint: 'sk-…', where: 'platform.openai.com' },
   codex: { provider: 'openai', model: 'gpt-5-codex', keyHint: 'sk-…', where: 'platform.openai.com' },
-  gemini: { provider: 'gemini', model: 'gemini-2.5-pro', keyHint: 'AIza…', where: 'aistudio.google.com' },
+  gemini: { provider: 'gemini', model: 'gemini-2.5-pro', keyHint: 'AQ.… (or an older AIza… key)', where: 'aistudio.google.com' },
   grok: { provider: 'grok', model: 'grok-4', keyHint: 'xai-…', where: 'console.x.ai' },
   llama: { provider: 'openrouter', model: 'meta-llama/llama-3.3-70b-instruct', keyHint: 'sk-or-…', where: 'openrouter.ai' },
   ollama: { provider: 'ollama', model: 'qwen3', keyHint: '', where: 'ollama.com', local: true },
@@ -40,6 +40,27 @@ export async function refreshKeys() {
 export const hasKey = (slot) => keyed.has(slot);
 export async function setKey(slot, key) { await tauri.core.invoke('keys_set', { slot, key }); await refreshKeys(); }
 export async function removeKey(slot) { await tauri.core.invoke('keys_remove', { slot }); await refreshKeys(); }
+
+// What agents can do on this device: use the computer (Windows, for now) or only think and write.
+let caps = { computer: true, platform: '' };
+export const canUseComputer = () => caps.computer;
+
+/** Tries a key with its provider before saving it. Resolves to the models the key can use. */
+export function check(pid, key, model, baseUrl, name) {
+  return tauri.core.invoke('ai_check', { provider: ENGINES[pid].provider, slot: pid, key: key || null, model: model || ENGINES[pid].model || '', baseUrl: baseUrl || null, name });
+}
+// The best model a key can use, when the one asked for isn't there: the newest of the family
+// this provider is known for (Opus for Claude, Pro for Gemini, and so on).
+const FAMILY = { claude: [/^claude-opus-(\d+)(?:-(\d+))?$/, /^claude-sonnet-(\d+)(?:-(\d+))?$/], gemini: [/^gemini-(\d+)(?:\.(\d+))?-pro$/, /^gemini-(\d+)(?:\.(\d+))?-pro-preview/, /^gemini-(\d+)(?:\.(\d+))?-flash$/],
+  chatgpt: [/^gpt-(\d+)(?:\.(\d+))?$/], codex: [/^gpt-(\d+)(?:\.(\d+))?-codex$/, /^gpt-(\d+)(?:\.(\d+))?$/], grok: [/^grok-(\d+)(?:\.(\d+))?$/] };
+export function pickModel(pid, models, wanted) {
+  if (!models?.length || models.includes(wanted)) return wanted;
+  for (const re of FAMILY[pid] || []) {
+    const best = models.map((m) => [m, m.match(re)]).filter(([, x]) => x).sort((a, b) => (+b[1][1] - +a[1][1]) || ((+b[1][2] || 0) - (+a[1][2] || 0)))[0];
+    if (best) return best[0];
+  }
+  return wanted;
+}
 
 /** True when this agent should run on the real runtime. */
 export const ready = (a) => !!tauri && !!a && (keyed.has(a.model) || a.model === 'ollama') && !!ENGINES[a.model];
@@ -79,13 +100,22 @@ export function estimate(agents, question, rounds = 1) {
 /** Rewind: the agent forgets everything after its first `jobs` jobs. */
 export function rewind(aid, jobs) { tauri?.core.invoke('agent_rewind', { agent: aid, jobs }); }
 
+const begun = new Set(); // agents whose job has started (the runtime said so)
 export async function run(aid, text) {
   const a = agent(aid);
   const spec = specOf(a), brain = brainOf(a);
+  begun.delete(aid);
   try {
     // the notebook goes with the job (not into the standing instructions, which stay cached)
     const notes = nb.asText(a);
     await tauri.core.invoke('agent_run', { spec, brain, text: notes ? `${text}\n\n${notes}` : text });
+    // never silence: if the job doesn't start, say so
+    setTimeout(() => {
+      if (begun.has(aid) || live.has(aid)) return;
+      post(aid, { from: 'agent', kind: 'problem', text: 'This job didn’t start. Try sending it again; if it keeps happening, close Minus and open it again.' });
+      updateAgent(aid, { status: 'idle', statusText: 'Hit a problem' });
+      react(aid, 'worried');
+    }, 12000);
   } catch (e) {
     post(aid, { from: 'agent', text: String(e?.message || e) });
     updateAgent(aid, { status: 'idle', statusText: 'Ready' });
@@ -129,14 +159,25 @@ export function listen() {
   if (!tauri) return;
   refreshKeys();
   applyPace();
+  tauri.core.invoke('agent_caps').then((c) => { if (c) { caps = c; emit('caps', c); } }).catch(() => {});
   tauri.event.listen('agent-event', ({ payload }) => {
     const aid = payload.agent, e = payload.event, a = agent(aid); if (!a) return;
     const cur = live.get(aid);
-    const card = (patch) => cur && patchMessage(aid, cur.mid, patch);
+    const card = (patch) => cur?.mid && patchMessage(aid, cur.mid, patch);
+    const quiet = () => emit('typing', { agent: aid, on: false });
     switch (e.kind) {
       case 'started': {
+        begun.add(aid);
         const comp = computer(a.computer)?.name || 'this computer';
         const sk = pendingRun.get(aid); pendingRun.delete(aid);
+        // with no computer to use, it's a conversation: it types, then answers (no work card)
+        if (!caps.computer && !sk) {
+          live.set(aid, { mid: null, steps: [], usage: { input: 0, output: 0, cacheRead: 0 }, model: (providerState(a.model) || {}).modelId || ENGINES[a.model]?.model });
+          updateAgent(aid, { status: 'working', statusText: 'Thinking…' });
+          emit('typing', { agent: aid, on: true });
+          react(aid, 'thinking');
+          break;
+        }
         const m = post(aid, { from: 'agent', kind: 'steps', title: sk ? `Doing “${sk.name}”` : `Working on ${comp}`, live: true, total: sk ? sk.steps.length : null, done: 0, steps: [], skill: !!sk });
         live.set(aid, { mid: m.mid, steps: [], usage: { input: 0, output: 0, cacheRead: 0 }, model: (providerState(a.model) || {}).modelId || ENGINES[a.model]?.model });
         updateAgent(aid, { status: 'working', statusText: 'Starting' });
@@ -150,6 +191,7 @@ export function listen() {
         break;
       case 'step':
         if (!cur) break;
+        if (!cur.mid) { quiet(); cur.mid = post(aid, { from: 'agent', kind: 'steps', title: 'Working', live: true, done: 0, steps: [] }).mid; }
         cur.steps.push(e.text);
         emit('step', { agent: aid, text: e.text });
         card({ steps: cur.steps.slice(-5), done: cur.steps.length });
@@ -157,6 +199,7 @@ export function listen() {
         react(aid, 'step');
         break;
       case 'ask': {
+        quiet();
         const m = e.options?.length
           ? post(aid, { from: 'agent', text: e.question, choices: e.options, call: e.call })
           : post(aid, { from: 'agent', kind: 'question', text: e.question, placeholder: e.placeholder || 'Type your answer', call: e.call });
@@ -166,6 +209,7 @@ export function listen() {
         break;
       }
       case 'approval':
+        quiet();
         post(aid, { from: 'agent', kind: 'approval', id: e.call, call: e.call, action: e.action, detail: e.details, preview: [], state: 'pending' });
         updateAgent(aid, { status: 'waiting', statusText: 'Waiting for your OK' });
         react(aid, 'ask');
@@ -195,6 +239,7 @@ export function listen() {
         }
         break;
       case 'done':
+        quiet();
         card({ live: false, title: `Done on ${computer(a.computer)?.name || 'this computer'}` });
         live.delete(aid);
         if (e.text?.trim()) post(aid, { from: 'agent', text: e.text.trim() });
@@ -203,6 +248,7 @@ export function listen() {
         react(aid, 'done');
         break;
       case 'stopped':
+        quiet();
         card({ live: false, title: 'Stopped' });
         live.delete(aid); asking.delete(aid);
         updateAgent(aid, { status: 'idle', statusText: 'Stopped' });
@@ -210,6 +256,7 @@ export function listen() {
         react(aid, 'calm');
         break;
       case 'error':
+        quiet();
         card({ live: false, title: 'Stopped by a problem' });
         live.delete(aid); asking.delete(aid);
         post(aid, { from: 'agent', kind: 'problem', text: e.message });

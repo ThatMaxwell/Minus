@@ -12,8 +12,10 @@ pub static PACE_MS: AtomicU64 = AtomicU64::new(140);
 
 /// Our own tools, as JSON Schema. Declared once at the start of a conversation and never
 /// changed, so the prompt cache and the model's earlier reasoning stay valid.
-pub fn custom_tools() -> Vec<Value> {
-    vec![
+/// The tools an agent gets. Without a computer to control (a phone, or a system Minus Hands
+/// doesn't support yet), it gets only the ones that don't need one.
+pub fn custom_tools(computer: bool) -> Vec<Value> {
+    let all = vec![
         json!({
             "name": "look",
             "description": "Read a window as an outline of its elements: buttons, fields, links, lists, with their [number], name, value and state. Call it before acting in a window you haven't seen yet, and when you're unsure what's on screen. Without `window` it reads the window in front.",
@@ -84,7 +86,9 @@ pub fn custom_tools() -> Vec<Value> {
             "description": "Send the person a message while you keep working, for something they need now or verbatim (a code, a link, a number they asked for). Not for routine progress.",
             "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
         }),
-    ]
+    ];
+    const NEEDS_COMPUTER: [&str; 4] = ["look", "windows", "act", "use_skill"];
+    all.into_iter().filter(|t| computer || !NEEDS_COMPUTER.contains(&t["name"].as_str().unwrap_or(""))).collect()
 }
 
 /// Parsed `act` input.

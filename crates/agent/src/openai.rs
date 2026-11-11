@@ -21,20 +21,20 @@ pub fn base_url(b: &Brain) -> String {
     .to_string()
 }
 
-fn tools() -> Vec<Value> {
-    crate::tools::custom_tools()
+fn tools(computer: bool) -> Vec<Value> {
+    crate::tools::custom_tools(computer)
         .into_iter()
         .map(|t| json!({"type": "function", "function": {"name": t["name"], "description": t["description"], "parameters": t["input_schema"]}}))
         .collect()
 }
 
-pub async fn turn(http: &reqwest::Client, brain: &Brain, system: &str, history: &[Value]) -> Result<Turn, AgentError> {
+pub async fn turn(http: &reqwest::Client, brain: &Brain, system: &str, history: &[Value], computer: bool) -> Result<Turn, AgentError> {
     let mut messages = vec![json!({"role": "system", "content": system})];
     messages.extend(history.iter().flat_map(|m| {
         // tool results are stored as one message holding a list; this format wants one each
         if m["role"] == "tool_batch" { m["items"].as_array().cloned().unwrap_or_default() } else { vec![m.clone()] }
     }));
-    let body = json!({"model": brain.model, "messages": messages, "tools": tools()});
+    let body = json!({"model": brain.model, "messages": messages, "tools": tools(computer)});
     let mut req = http.post(format!("{}/chat/completions", base_url(brain))).json(&body);
     if !brain.key.is_empty() {
         req = req.bearer_auth(&brain.key);
@@ -50,11 +50,12 @@ pub async fn turn(http: &reqwest::Client, brain: &Brain, system: &str, history: 
         if status == 200 {
             return parse(&text);
         }
-        let msg = serde_json::from_str::<Value>(&text).ok().and_then(|v| v["error"]["message"].as_str().map(String::from)).unwrap_or(text);
+        let msg = crate::api_message(&text);
         last = match status {
-            401 | 403 => format!("{} didn't accept the API key. Check it in Settings → Your AI.", brain.provider),
-            404 => format!("{} doesn't have the model \"{}\": {msg}", brain.provider, brain.model),
-            _ => format!("{}: {msg}", brain.provider),
+            401 | 403 => format!("{} didn't accept the API key ({msg}). Check it in Settings → Your AI.", crate::provider_name(&brain.provider)),
+            400 if msg.to_lowercase().contains("key") => format!("{} didn't accept the API key ({msg}). Check it in Settings → Your AI.", crate::provider_name(&brain.provider)),
+            404 => format!("{} doesn't have the model \"{}\": {msg}", crate::provider_name(&brain.provider), brain.model),
+            _ => format!("{}: {msg}", crate::provider_name(&brain.provider)),
         };
         if status == 429 || status >= 500 {
             tokio::time::sleep(std::time::Duration::from_millis(1500 * attempt)).await;

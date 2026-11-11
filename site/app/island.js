@@ -9,7 +9,7 @@ export const supported = () => !!tauri && android;
 
 export async function status() {
   if (!supported()) return { granted: false, supported: false };
-  try { return await tauri.core.invoke('plugin:island|status'); } catch { return { granted: false, supported: false }; }
+  try { return (await tauri.core.invoke('plugin:island|status')) || { granted: false, supported: false }; } catch { return { granted: false, supported: false }; }
 }
 export async function allow() { try { await tauri.core.invoke('plugin:island|ask'); } catch {} }
 export const enabled = () => state.settings.island !== false;

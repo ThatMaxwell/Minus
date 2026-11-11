@@ -131,6 +131,29 @@ async fn agent_run(app: AppHandle, rt: tauri::State<'_, Agents>, spec: agent::Ag
     Ok(())
 }
 
+/// What agents can do on this device: use the computer (Windows, for now), or only think and write.
+#[derive(Serialize)]
+struct Caps {
+    computer: bool,
+    platform: &'static str,
+}
+#[tauri::command]
+fn agent_caps(rt: tauri::State<'_, Agents>) -> Caps {
+    Caps { computer: rt.0.has_computer(), platform: std::env::consts::OS }
+}
+
+/// Tries a key with its provider before it's saved: Ok(models it can use), or the reason it
+/// didn't work. With no key given, it checks the one already saved for `slot`.
+#[tauri::command]
+async fn ai_check(app: AppHandle, rt: tauri::State<'_, Agents>, provider: String, slot: String, key: Option<String>, model: String, base_url: Option<String>, name: String) -> Result<Vec<String>, String> {
+    let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty()).or_else(|| keys::get(&data_dir(&app).ok()?, &slot)).unwrap_or_default();
+    if key.is_empty() && provider != "ollama" && provider != "custom" {
+        return Err("Paste the API key first.".into());
+    }
+    let brain = agent::Brain { provider, model, key, effort: None, base_url: base_url.filter(|u| !u.trim().is_empty()) };
+    rt.0.check(&brain, &name).await
+}
+
 /// Ask the room: one agent's answer (round 1), or its reply to the others (round 2).
 #[tauri::command]
 async fn room_answer(app: AppHandle, rt: tauri::State<'_, Agents>, spec: agent::AgentSpec, brain: BrainIn, notes: String, question: String, others: Vec<(String, String)>, round: u8) -> Result<agent::room::Answer, String> {
@@ -401,11 +424,11 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
 /// The commands the app's pages can call.
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
+    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_caps, ai_check, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
 }
 #[cfg(mobile)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, agent_run, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
+    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, agent_run, agent_caps, ai_check, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
 }
 
 /// When Minus can't start or hits a bug it can't recover from, say so (a popup on Windows,

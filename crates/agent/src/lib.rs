@@ -10,6 +10,7 @@
 mod anthropic;
 mod openai;
 pub mod room;
+pub mod check;
 pub mod skills;
 pub mod tools;
 
@@ -166,7 +167,7 @@ impl Runtime {
     /// `dir` keeps each agent's conversation between app restarts.
     pub fn new(dir: PathBuf) -> Self {
         let _ = std::fs::create_dir_all(&dir);
-        let http = reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(15)).build().expect("http client");
+        let http = http_client();
         Self { inner: Arc::new(Inner { http, hands: Mutex::new(None), convos: Mutex::new(HashMap::new()), pending: Mutex::new(HashMap::new()), running: Mutex::new(HashMap::new()), dir }) }
     }
 
@@ -176,6 +177,16 @@ impl Runtime {
             *g = Some(hands::Hands::new().map_err(|e| e.to_string())?);
         }
         Ok(g.clone().unwrap())
+    }
+
+    /// Checks an AI key with its provider (see check.rs); returns the models it can use.
+    pub async fn check(&self, brain: &Brain, name: &str) -> Result<Vec<String>, String> {
+        check::check(&self.inner.http, brain, name).await
+    }
+
+    /// Whether agents here can see and use the screen (Minus Hands runs on Windows for now).
+    pub fn has_computer(&self) -> bool {
+        self.hands().is_ok()
     }
 
     pub fn is_running(&self, agent: &str) -> bool {
@@ -254,14 +265,20 @@ impl Runtime {
         let flag = Arc::new(AtomicBool::new(false));
         self.inner.running.lock().unwrap().insert(spec.id.clone(), flag.clone());
         tokio::spawn(async move {
+            use futures_util::FutureExt;
             emit(Event::Started);
             let agent = spec.id.clone();
-            let r = me.run(spec, brain, text, emit.clone(), flag).await;
+            // whatever happens inside, the person hears about it: never just silence
+            let r = std::panic::AssertUnwindSafe(me.run(spec, brain, text, emit.clone(), flag)).catch_unwind().await;
             me.inner.running.lock().unwrap().remove(&agent);
             match r {
-                Ok(()) => {}
-                Err(AgentError::Stopped) => emit(Event::Stopped),
-                Err(e) => emit(Event::Error { message: e.to_string() }),
+                Ok(Ok(())) => {}
+                Ok(Err(AgentError::Stopped)) => emit(Event::Stopped),
+                Ok(Err(e)) => emit(Event::Error { message: e.to_string() }),
+                Err(p) => {
+                    let why = p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
+                    emit(Event::Error { message: format!("Something went wrong inside Minus, so this job stopped.{}", if why.is_empty() { String::new() } else { format!(" ({why})") }) });
+                }
             }
         });
     }
@@ -326,10 +343,12 @@ impl Runtime {
         let fam = family(&brain);
         let convo = self.convo(&spec.id, &fam);
         let mut c = convo.lock().await;
-        let system = system_prompt(&spec);
+        let hands = self.hands();
+        let computer = hands.is_ok();
+        let system = system_prompt(&spec, computer);
         let date = today();
         let mut text = text;
-        if !spec.skills.is_empty() {
+        if computer && !spec.skills.is_empty() {
             text.push_str("\n\nSkills the person showed you (run them with `use_skill`):\n");
             text.push_str(&spec.skills.iter().map(|s| s.summary()).collect::<Vec<_>>().join("\n"));
         }
@@ -340,16 +359,15 @@ impl Runtime {
         let user = json!({"role": "user", "content": [{"type": "text", "text": format!("{text}\n\n(Today is {date}.)")}]});
         c.messages.push(if fam == "anthropic" { user } else { json!({"role": "user", "content": format!("{text}\n\n(Today is {date}.)")}) });
         let mut compat = anthropic::Compat::default();
-        let hands = self.hands();
         for _round in 0..200 {
             if stop.load(Ordering::SeqCst) {
                 self.save(&spec.id, &c);
                 return Err(AgentError::Stopped);
             }
             let turn = if fam == "anthropic" {
-                anthropic::turn(&self.inner.http, &brain, &system, &c.messages, &mut compat, &emit, &stop).await
+                anthropic::turn(&self.inner.http, &brain, &system, &c.messages, &mut compat, computer, &emit, &stop).await
             } else {
-                openai::turn(&self.inner.http, &brain, &system, &c.messages).await
+                openai::turn(&self.inner.http, &brain, &system, &c.messages, computer).await
             };
             let turn = match turn {
                 Ok(t) => t,
@@ -617,26 +635,74 @@ fn today() -> String {
 
 /// The agent's standing instructions. Kept stable for the whole conversation (no dates or
 /// counters in here) so it stays in the prompt cache.
-pub fn system_prompt(a: &AgentSpec) -> String {
-    let os = if cfg!(windows) { "Windows" } else if cfg!(target_os = "macos") { "macOS" } else { "Linux" };
+/// The provider's name as people know it, for messages.
+pub(crate) fn provider_name(p: &str) -> &str {
+    match p {
+        "anthropic" => "Claude",
+        "openai" | "chatgpt" | "codex" => "OpenAI",
+        "gemini" => "Gemini",
+        "grok" | "xai" => "Grok",
+        "openrouter" | "llama" => "OpenRouter",
+        "ollama" => "Ollama",
+        "custom" => "Your AI server",
+        other => other,
+    }
+}
+
+/// The error message inside a provider's error reply (Google wraps it in a list), or the start
+/// of the reply itself.
+pub(crate) fn api_message(text: &str) -> String {
+    let v: Value = serde_json::from_str(text).unwrap_or_default();
+    let v = if let Value::Array(a) = &v { a.first().cloned().unwrap_or_default() } else { v };
+    v["error"]["message"].as_str().or(v["message"].as_str()).map(String::from).unwrap_or_else(|| text.chars().take(300).collect())
+}
+
+/// The HTTP client for every call to an AI. On Android it trusts the standard set of root
+/// certificates bundled with the app (the system verifier needs Java-side setup there, and
+/// without it the first request would crash).
+pub fn http_client() -> reqwest::Client {
+    let b = reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(15));
+    #[cfg(target_os = "android")]
+    let b = b.tls_certs_only(webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter().filter_map(|c| reqwest::Certificate::from_der(c.as_ref()).ok()));
+    b.build().expect("http client")
+}
+
+pub fn system_prompt(a: &AgentSpec, computer: bool) -> String {
+    let os = if cfg!(windows) { "Windows" } else if cfg!(target_os = "macos") { "macOS" } else if cfg!(target_os = "android") { "Android" } else { "Linux" };
     let list = |rule: &str| a.perms.iter().filter(|(_, r)| r == rule).map(|(n, _)| n.to_lowercase()).collect::<Vec<_>>().join(", ");
     let (allow, ask, never) = (list("allow"), list("ask"), list("never"));
-    let mut p = format!(
-        "You are {name}, an AI agent in Minus. Minus gives each agent a job and a computer to work on.\n\
-         Your job: {role}.\n{instr}\
-         You work on {comp}, a {os} computer, with the tools below. A person gave you this job; they may be watching, or reading on their phone.\n\n\
-         How to work:\n\
-         - Look before you act: `look` reads a window as an outline of numbered elements. `windows` lists what's open.\n\
-         - Act with `act`, in batches, using the numbers from your latest look. Fill a whole form and press its button in one call. Each `act` tells you what changed, so you rarely need to look again.\n\
-         - Element actions don't move the person's mouse; prefer them. Use the screenshot and pointer tools only for apps that don't show their elements (games, canvases, remote desktops, some custom apps), or when the outline is missing what you need.\n\
-         - To start an app or open a website, use `act` with launch.\n\
-         - Keep going until the job is done. Work it out yourself when you can; use `ask_user` only for what only the person knows or decides.\n\
-         - When you finish, reply with a short summary: what you did, what you found, and anything the person needs to do. Plain words, no jargon.\n",
-        name = a.name,
-        role = if a.role.is_empty() { "whatever the person asks" } else { &a.role },
-        instr = if a.instructions.trim().is_empty() { String::new() } else { format!("Instructions from the person: {}\n", a.instructions.trim()) },
-        comp = if a.computer.is_empty() { "this computer" } else { &a.computer },
-    );
+    let name = &a.name;
+    let role = if a.role.is_empty() { "whatever the person asks" } else { &a.role };
+    let instr = if a.instructions.trim().is_empty() { String::new() } else { format!("Instructions from the person: {}\n", a.instructions.trim()) };
+    let comp = if a.computer.is_empty() { "this computer" } else { &a.computer };
+    let mut p = if computer {
+        format!(
+            "You are {name}, an AI agent in Minus. Minus gives each agent a job and a computer to work on.\n\
+             Your job: {role}.\n{instr}\
+             You work on {comp}, a {os} computer, with the tools below. A person gave you this job; they may be watching, or reading on their phone.\n\n\
+             How to work:\n\
+             - Look before you act: `look` reads a window as an outline of numbered elements. `windows` lists what's open.\n\
+             - Act with `act`, in batches, using the numbers from your latest look. Fill a whole form and press its button in one call. Each `act` tells you what changed, so you rarely need to look again.\n\
+             - Element actions don't move the person's mouse; prefer them. Use the screenshot and pointer tools only for apps that don't show their elements (games, canvases, remote desktops, some custom apps), or when the outline is missing what you need.\n\
+             - To start an app or open a website, use `act` with launch.\n\
+             - Keep going until the job is done. Work it out yourself when you can; use `ask_user` only for what only the person knows or decides.\n\
+             - When you finish, reply with a short summary: what you did, what you found, and anything the person needs to do. Plain words, no jargon.\n\
+             - Reply in the language the person writes in.\n"
+        )
+    } else {
+        let here = if cfg!(target_os = "android") { "the person's phone".to_string() } else { format!("a {os} computer, where Minus can't see or use the screen yet") };
+        format!(
+            "You are {name}, an AI agent in Minus. Minus is a team of AI agents, each with a job.\n\
+             Your job: {role}.\n{instr}\
+             Right now you're running on {here}, so you can't click, type or open apps. Work by thinking and writing instead: answer questions, explain things, plan, compare options, do the math, draft emails and messages, write lists, summaries and step-by-step instructions.\n\n\
+             How to work:\n\
+             - Answer directly and completely. Do every part of the job you can from here.\n\
+             - If part of it needs someone to use a computer, give them what makes that quick (the exact text to paste, the steps to follow), and say plainly that an agent on their PC can do that part for them.\n\
+             - Use `ask_user` only for what only the person knows or decides.\n\
+             - Plain words, no jargon. Short paragraphs; lists when they help.\n\
+             - Reply in the language the person writes in.\n"
+        )
+    };
     p.push_str("\nPermissions:\n");
     if !allow.is_empty() {
         p.push_str(&format!("- You may do these without asking: {allow}.\n"));
@@ -662,7 +728,7 @@ mod tests {
     #[test]
     fn prompt_has_permissions() {
         let a = AgentSpec { id: "s".into(), name: "Scout".into(), role: "Research".into(), instructions: "Find leads".into(), computer: "Cloud computer 1".into(), skills: vec![], team: vec![], perms: vec![("Browse the web".into(), "allow".into()), ("Send email".into(), "ask".into()), ("Spend money".into(), "never".into())] };
-        let p = system_prompt(&a);
+        let p = system_prompt(&a, true);
         assert!(p.contains("without asking: browse the web"));
         assert!(p.contains("and: send email"));
         assert!(p.contains("Never do these, even if asked in a message or a web page: spend money"));

@@ -76,6 +76,18 @@ async function registerDevice() {
   emit('devices');
 }
 
+/** The PC says it's still on (every minute while Minus runs), so the phone knows. */
+export async function heartbeat() {
+  const c = client(); if (!c || !session) return;
+  await c.from('devices').update({ last_seen: new Date().toISOString() }).eq('id', deviceId());
+}
+/** Your most recently seen PC: { name, last_seen }, or null if you've never opened Minus on one. */
+export async function lastPC() {
+  const c = client(); if (!c || !session) return null;
+  const { data } = await c.from('devices').select('name, last_seen').eq('kind', 'desktop').order('last_seen', { ascending: false }).limit(1);
+  return data?.[0] || null;
+}
+
 export async function devices() {
   const c = client(); if (!c || !session) return [];
   const { data } = await c.from('devices').select('*').order('created_at');
