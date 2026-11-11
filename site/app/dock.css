@@ -125,3 +125,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid rgba(255,255,255,
 .notch[data-mode="dot"] .ear { display: none; }
 .ear.l { left: calc(50% - var(--iw, 0px) / 2 - 11px); background: radial-gradient(circle at 0 100%, transparent 11.5px, #000 12px); }
 .ear.r { left: calc(50% + var(--iw, 0px) / 2 - 1px); background: radial-gradient(circle at 100% 100%, transparent 11.5px, #000 12px); }
+
+/* the live faces glide over the island in a layer of their own */
+.faces { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 2; }
+.faces > .mx { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform, opacity; }
+.content { z-index: 1; }

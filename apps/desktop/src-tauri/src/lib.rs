@@ -297,12 +297,38 @@ fn dock_notch() -> Option<NotchSize> {
     *NOTCH.lock().unwrap()
 }
 
-/// The dock sizes itself to its content (so it never blocks clicks around it) and stays
-/// centered at the top of the screen it's on, like an island.
+/// The island inside the dock's window (its size in CSS pixels, centered at the top), so clicks
+/// anywhere else go through to what's underneath.
+#[cfg(desktop)]
+static DOCK_HIT: Mutex<(f64, f64)> = Mutex::new((44.0, 44.0));
+/// Where the cursor can be followed, the dock's window stays one size and the island moves
+/// inside it, so it never jumps or flashes while it changes shape. Elsewhere the window follows
+/// the island's size instead.
+#[cfg(desktop)]
+static DOCK_STILL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Room for the biggest island (a question, everyone at work) and its shadow, in CSS pixels.
+#[cfg(desktop)]
+const DOCK_ROOM: (f64, f64) = (520.0, 440.0);
+#[cfg(desktop)]
+static DOCK_SIZE: Mutex<(f64, f64)> = Mutex::new((0.0, 0.0));
+
+/// The dock stays centered at the top of the screen it's on, like an island. `width`/`height`
+/// is the room it needs (island plus shadow), `island_w`/`island_h` the island itself.
 #[cfg(desktop)]
 #[tauri::command]
-fn dock_fit(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
+fn dock_fit(app: AppHandle, width: f64, height: f64, island_w: Option<f64>, island_h: Option<f64>) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
     let dock = app.get_webview_window("dock").ok_or("no dock")?;
+    let still = DOCK_STILL.load(Ordering::Relaxed);
+    let (width, height) = if still {
+        *DOCK_HIT.lock().unwrap() = (island_w.unwrap_or(width), island_h.unwrap_or(height));
+        // it only ever grows, and only past the room it starts with
+        let mut room = DOCK_SIZE.lock().unwrap();
+        *room = (room.0.max(width).max(DOCK_ROOM.0), room.1.max(height).max(DOCK_ROOM.1));
+        *room
+    } else {
+        (width, height)
+    };
     let mon = dock.current_monitor().ok().flatten().or_else(|| dock.primary_monitor().ok().flatten()).ok_or("no screen")?;
     let scale = mon.scale_factor();
     let (w, h) = ((width * scale).round() as u32, (height * scale).round() as u32);
@@ -310,9 +336,62 @@ fn dock_fit(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
     // with a notch it hangs from the very top of the screen; otherwise it floats just below
     let gap = if NOTCH.lock().unwrap().is_some() { 0.0 } else { 10.0 };
     let y = mon.position().y + (gap * scale) as i32;
-    dock.set_size(PhysicalSize::new(w, h)).map_err(|e| e.to_string())?;
-    dock.set_position(PhysicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+    // only what changed (moving a window that's already in place makes it flicker)
+    let (size, pos) = (PhysicalSize::new(w, h), PhysicalPosition::new(x, y));
+    if dock.inner_size().ok() != Some(size) {
+        dock.set_size(size).map_err(|e| e.to_string())?;
+    }
+    if dock.outer_position().ok() != Some(pos) {
+        dock.set_position(pos).map_err(|e| e.to_string())?;
+    }
     Ok(())
+}
+
+/// Lets clicks through the dock everywhere but the island, and tells the island when the
+/// cursor comes and goes (it can't see that itself while clicks go through).
+#[cfg(desktop)]
+fn follow_cursor(dock: tauri::WebviewWindow) {
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+    // Wayland doesn't say where the cursor is: there the window follows the island instead
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() && std::env::var("GDK_BACKEND").map_or(true, |b| !b.contains("x11")) {
+        return;
+    }
+    if dock.cursor_position().is_err() {
+        return;
+    }
+    DOCK_STILL.store(true, Ordering::Relaxed);
+    std::thread::spawn(move || {
+        let mut inside: Option<bool> = None;
+        let mut geo = None;
+        let mut tick = 0u32;
+        loop {
+            std::thread::sleep(Duration::from_millis(24));
+            tick = tick.wrapping_add(1);
+            if tick % 8 == 0 && !dock.is_visible().unwrap_or(true) {
+                std::thread::sleep(Duration::from_millis(250));
+                continue;
+            }
+            // where the window is changes rarely: look again every so often
+            if geo.is_none() || tick % 20 == 0 {
+                geo = match (dock.outer_position(), dock.inner_size(), dock.scale_factor()) {
+                    (Ok(p), Ok(s), Ok(k)) => Some((p, s, k)),
+                    _ => None,
+                };
+            }
+            let (Some((p, s, k)), Ok(c)) = (geo, dock.cursor_position()) else { continue };
+            let (iw, ih) = *DOCK_HIT.lock().unwrap();
+            let (x, y) = ((c.x - p.x as f64) / k, (c.y - p.y as f64) / k);
+            let left = (s.width as f64 / k - iw) / 2.0;
+            let now = x >= left - 4.0 && x <= left + iw + 4.0 && y >= -6.0 && y <= ih + 4.0;
+            if inside != Some(now) {
+                inside = Some(now);
+                let _ = dock.set_ignore_cursor_events(!now);
+                let _ = dock.emit("dock-hover", now);
+            }
+        }
+    });
 }
 
 /// Opens the main window (from the tray, the dock, a second launch or a minus:// link).
@@ -358,6 +437,7 @@ fn make_dock(app: &AppHandle) -> tauri::Result<()> {
             *NOTCH.lock().unwrap() = notch::of(p);
         }
     }
+    follow_cursor(dock);
     Ok(())
 }
 

@@ -65,11 +65,40 @@ function face(a) {
 }
 const MINUS = { id: 'minus', name: 'Minus', color: COLORS.cloud, outfit: {} };
 const slot = (a, s) => `<span class="slot" data-face="${esc(a.id)}" style="--s:${s}"></span>`;
+const who = (id) => S.working.find((x) => x.id === id) || S.asks.map((q) => q.agent).find((x) => x.id === id) || (S.watch?.agent.id === id ? S.watch.agent : null) || S.morning?.agents.find((x) => x.id === id) || (sentNote?.agent.id === id ? sentNote.agent : null) || (id === 'minus' ? MINUS : null);
+// The faces sit in a layer of their own over the island, so when the island changes shape they
+// glide to their new places instead of blinking out with the old layout and back in with the new.
+const layer = document.createElement('div');
+layer.className = 'faces';
+island.appendChild(layer);
+const FACE_SPRING = { type: 'spring', stiffness: 420, damping: 36, mass: 0.8 };
 function placeFaces(root) {
-  root.querySelectorAll('.slot[data-face]').forEach((el) => {
-    const a = S.working.find((x) => x.id === el.dataset.face) || S.asks.map((q) => q.agent).find((x) => x.id === el.dataset.face) || (S.watch?.agent.id === el.dataset.face ? S.watch.agent : null) || S.morning?.agents.find((x) => x.id === el.dataset.face) || (el.dataset.face === 'minus' ? MINUS : null);
-    if (a) el.appendChild(face(a).wrap);
+  const want = new Map();
+  root.querySelectorAll('.slot[data-face]').forEach((el, i) => {
+    let x = 0, y = 0, n = el;
+    while (n && n !== root) { x += n.offsetLeft; y += n.offsetTop; n = n.offsetParent; }
+    if (!n) { const r = el.getBoundingClientRect(), b = root.getBoundingClientRect(); x = r.left - b.left; y = r.top - b.top; }
+    want.set(el.dataset.face, { x, y, s: parseFloat(el.style.getPropertyValue('--s')) || 1, z: i + 1 });
   });
+  for (const [id, p] of want) {
+    const a = who(id); if (!a) continue;
+    const f = face(a);
+    f.wrap.style.zIndex = p.z;
+    if (f.wrap.parentElement !== layer || !f.shown) {
+      // a face that wasn't showing: it pops in where it belongs
+      if (f.wrap.parentElement !== layer) layer.appendChild(f.wrap);
+      f.shown = true;
+      animate(f.wrap, { x: [p.x, p.x], y: [p.y + 3, p.y], scale: [p.s * 0.72, p.s], opacity: [0, 1] }, { ...FACE_SPRING, opacity: { duration: 0.22 } });
+    } else {
+      animate(f.wrap, { x: p.x, y: p.y, scale: p.s, opacity: 1 }, FACE_SPRING);
+    }
+  }
+  // the ones this layout doesn't have: a quick fade, then back to the stash (still alive)
+  for (const [id, f] of faces) {
+    if (f.wrap.parentElement !== layer || !f.shown || want.has(id)) continue;
+    f.shown = false;
+    animate(f.wrap, { opacity: 0, scale: 0.4 }, { duration: 0.14 }).then(() => { if (!f.shown) stash.appendChild(f.wrap); });
+  }
 }
 function mood(id, emotion) {
   const f = faces.get(id); if (!f || f.emotion === emotion) return;
@@ -116,8 +145,8 @@ function html(m) {
   if (m === 'hi') return `<div class="c-hi" data-act="open">${slot(MINUS, 0.6)}<b>Minus</b><span>All quiet</span></div>`;
   if (m === 'sent') return `<div class="sent">${slot(sentNote.agent, 0.84)}<div><b>Sent to ${esc(sentNote.agent.name)}</b><br><span>${esc(sentNote.text)}</span></div></div>`;
   if (m === 'pill') {
-    const w = S.working, first = w[0] || S.asks[0]?.agent;
-    const label = w.length > 1 ? `<b>${w.length} agents</b><span>working</span>` : w.length ? `<b>${esc(first.name)}</b><span>${esc(first.status)}</span>` : `<b>${esc(first.name)}</b><span>needs you</span>`;
+    const w = S.working;
+    const label = pillLabel();
     const avg = w.filter((x) => x.total).reduce((s, x) => [s[0] + x.done, s[1] + x.total], [0, 0]);
     const faceList = [...w, ...S.asks.map((q) => q.agent).filter((a) => !w.find((x) => x.id === a.id))].slice(0, 4);
     const end = S.asks.length ? '<span class="ping" aria-label="Someone needs you"></span>' : avg[1] ? ring(avg[0], avg[1]) : '';
@@ -146,28 +175,44 @@ function html(m) {
   return '';
 }
 
-const layoutKey = (m) => m + '|' + (m === 'watch' ? S.watch.agent.id : m === 'morning' ? S.morning.count + '/' + S.morning.needs : m === 'ask' ? activeAsk()?.mid : m === 'sent' ? sentNote.text : m === 'open' ? S.working.map((w) => w.id).join(',') + '/' + S.asks.map((q) => q.mid).join(',') : m === 'pill' ? S.working.map((w) => w.id).join(',') + '/' + S.asks.length + '/' + (S.working.length === 1 ? S.working[0].status : '') : '');
+function pillLabel() {
+  const w = S.working, first = w[0] || S.asks[0]?.agent;
+  if (!first) return '';
+  return w.length > 1 ? `<b>${w.length} agents</b><span>working</span>` : w.length ? `<b>${esc(first.name)}</b><span>${esc(first.status)}</span>` : `<b>${esc(first.name)}</b><span>needs you</span>`;
+}
+const hasRing = () => S.working.some((x) => x.total);
+const layoutKey = (m) => m + '|' + (m === 'watch' ? S.watch.agent.id : m === 'morning' ? S.morning.count + '/' + S.morning.needs : m === 'ask' ? activeAsk()?.mid : m === 'sent' ? sentNote.text : m === 'open' ? S.working.map((w) => w.id).join(',') + '/' + S.asks.map((q) => q.mid).join(',') : m === 'pill' ? S.working.map((w) => w.id).join(',') + '/' + S.asks.map((q) => q.agent.id).join(',') + '/' + hasRing() : '');
 
 /* ───────── fitting the window to the island ───────── */
 function fit(w, h) {
   const W = Math.ceil(w + SHADOW.x * 2), H = Math.ceil(h + SHADOW.b);
-  if (tauri) tauri.core.invoke('dock_fit', { width: W, height: H }).catch(() => {});
+  if (tauri) tauri.core.invoke('dock_fit', { width: W, height: H, islandW: Math.ceil(w + (NOTCH ? 24 : 0)), islandH: Math.ceil(h) }).catch(() => {});
   else parent.postMessage({ type: 'dock-fit', w: W, h: H }, '*');
 }
 document.body.style.paddingTop = '0px';
 
-let anim = null, current = null;
+let anim = null, current = null, settleT = 0;
+const BUSY = new Set(['pill', 'open']);
+function update() {
+  const m = pickMode();
+  if (BUSY.has(mode) && (m === 'dot' || m === 'hi')) {
+    if (!settleT) settleT = setTimeout(() => { settleT = 0; render(); }, 900);
+    return patch();
+  }
+  render();
+}
 function render(force = false) {
   const m = pickMode(), k = layoutKey(m);
   if (!force && k === key) return patch();
   key = k; mode = m;
+  clearTimeout(settleT); settleT = 0;
   const next = document.createElement('div');
   next.className = 'content';
   next.innerHTML = html(m);
   next.style.opacity = '0';
-  island.appendChild(next);
-  placeFaces(next);
+  island.insertBefore(next, layer);
   const w = next.offsetWidth, h = next.offsetHeight;
+  placeFaces(next);
   island.classList.toggle('asking', m === 'ask');
   island.classList.toggle('watching', m === 'watch');
   document.documentElement.dataset.mode = m;
@@ -180,13 +225,10 @@ function render(force = false) {
   size = { w, h };
   const prev = current; current = next;
   if (prev) {
-    animate(prev, { opacity: 0, filter: 'blur(4px)', scale: 0.97 }, { duration: 0.14 }).then(() => {
-      // faces that moved on are already in the new layout; the rest go back to the stash
-      prev.querySelectorAll('.mx').forEach((x) => stash.appendChild(x));
-      prev.remove();
-    });
+    prev.style.pointerEvents = 'none';
+    animate(prev, { opacity: 0, scale: 0.985 }, { duration: 0.12, ease: 'easeOut' }).then(() => prev.remove());
   }
-  animate(next, { opacity: [0, 1], filter: ['blur(6px)', 'blur(0px)'], scale: [0.98, 1] }, { duration: 0.3, delay: prev ? 0.07 : 0, ease: [0.22, 1, 0.36, 1] });
+  animate(next, { opacity: [0, 1], scale: [0.985, 1] }, { duration: 0.24, delay: prev ? 0.06 : 0, ease: [0.22, 1, 0.36, 1] });
   const input = next.querySelector('input');
   if (input) {
     const send = next.querySelector('.send');
@@ -195,9 +237,28 @@ function render(force = false) {
   moods();
 }
 
+// the island follows its content's size, smoothly, without a new layout
+function reflow() {
+  const c = current, w = c.offsetWidth, h = c.offsetHeight;
+  if (w === size.w && h === size.h) return;
+  fit(Math.max(w, size.w), Math.max(h, size.h));
+  anim = animate(island, { width: w, height: h }, SPRING);
+  anim.then(() => { if (current === c) fit(w, h); });
+  size = { w, h };
+  placeFaces(c);
+}
+
 // small updates without re-laying out: progress, status text
 function patch() {
   if (!current) return;
+  if (mode === 'pill') {
+    const p = current.querySelector('.p-text'), label = pillLabel();
+    if (p && label && p.innerHTML !== label) {
+      p.innerHTML = label;
+      const t = p.querySelector('span'); if (t) animate(t, { opacity: [0.35, 1] }, { duration: 0.28 });
+      reflow();
+    }
+  }
   for (const w of S.working) {
     const row = current.querySelector(`.row[data-agent="${CSS.escape(w.id)}"]`);
     if (row) {
@@ -213,8 +274,7 @@ function patch() {
       if (l && last) { l.textContent = last; animate(l, { opacity: [0, 1], y: [5, 0] }, { duration: 0.3 }); }
       const f = faces.get(S.watch.agent.id); if (f) { f.m.gesture('nod'); }
       // keep the island exactly as wide as what it says
-      const c = current.firstElementChild, w = c.offsetWidth, h = c.offsetHeight;
-      if (w !== size.w) { fit(Math.max(w, size.w), h); animate(island, { width: w }, SPRING).then(() => fit(w, h)); size = { w, h }; }
+      reflow();
     }
   }
   const r = current.querySelector('.ring .fg');
@@ -238,11 +298,14 @@ function moods() {
 }
 
 /* ───────── input ───────── */
-island.addEventListener('pointerenter', () => { hover = true; clearTimeout(leaveT); clearTimeout(hoverT); hoverT = setTimeout(() => render(), 110); });
-island.addEventListener('pointerleave', () => {
-  clearTimeout(hoverT);
-  leaveT = setTimeout(() => { if (document.activeElement?.tagName === 'INPUT') return; hover = false; render(); }, 420);
-});
+const enter = () => { clearTimeout(leaveT); if (hover) return; hover = true; clearTimeout(hoverT); hoverT = setTimeout(() => render(), 110); };
+const leave = () => {
+  clearTimeout(hoverT); clearTimeout(leaveT);
+  leaveT = setTimeout(() => { if (document.activeElement?.tagName === 'INPUT') return; if (!hover) return; hover = false; render(); }, 420);
+};
+island.addEventListener('pointerenter', enter);
+island.addEventListener('pointerleave', leave);
+tauri?.event.listen('dock-hover', ({ payload }) => (payload ? enter() : leave()));
 island.addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const act = b.dataset.act;
@@ -299,7 +362,7 @@ ch.onmessage = ({ data }) => {
   for (const [id, f] of faces) {
     if (id !== 'minus' && !S.working.find((w) => w.id === id) && !S.asks.find((q) => q.agent.id === id) && S.watch?.agent.id !== id && !S.morning?.agents.find((a) => a.id === id) && f.wrap.parentElement === stash) { f.m.destroy(); f.wrap.remove(); faces.delete(id); }
   }
-  render();
+  update();
 };
 ch.postMessage({ type: 'hello' });
 findNotch().finally(() => {
