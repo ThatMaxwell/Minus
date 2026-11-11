@@ -3,10 +3,11 @@
 // Minus Hands. Anywhere else (the web preview, or before a key is added) the demo brain in
 // brain.js plays the part. Both post the same kinds of messages, so the UI doesn't care.
 import { state, agent, computer, post, patchMessage, updateAgent, emit, providerState } from './store.js';
-import { react, feel } from './director.js';
+import { react, feel, gesture } from './director.js';
 import { PERMISSIONS } from './data.js';
 import * as nb from './notebook.js';
 import { pendingRun } from './teach.js';
+import { chime, notify } from './chime.js';
 
 const tauri = window.__TAURI__;
 export const desktop = !!tauri;
@@ -223,6 +224,7 @@ export function listen() {
         asking.set(aid, { call: e.call, mid: m.mid });
         updateAgent(aid, { status: 'waiting', statusText: 'Needs an answer' });
         react(aid, 'ask');
+        chime('ask'); notify(`${a.name} has a question`, e.question);
         break;
       }
       case 'approval':
@@ -230,6 +232,7 @@ export function listen() {
         post(aid, { from: 'agent', kind: 'approval', id: e.call, call: e.call, action: e.action, detail: e.details, preview: [], state: 'pending' });
         updateAgent(aid, { status: 'waiting', statusText: 'Waiting for your OK' });
         react(aid, 'ask');
+        chime('ask'); notify(`${a.name} needs your OK`, e.action);
         emit('approvals');
         break;
       case 'message':
@@ -251,6 +254,10 @@ export function listen() {
         browsing.add(aid);
         emit('browse', { agent: aid, url: e.url, title: e.title });
         break;
+      case 'gesture':
+        gesture(aid, e.name);
+        emit('gesture', { agent: aid, name: e.name });
+        break;
       case 'face':
         // its own expression, chosen by the agent (the code it wrote never shows)
         a.feel = e.name; feel(aid, e.name);
@@ -271,6 +278,8 @@ export function listen() {
         updateAgent(aid, { status: 'done', statusText: 'Finished' });
         emit('work', { agent: aid, on: false });
         react(aid, 'done');
+        chime('done');
+        notify(`${a.name} is done`, brief(e.text?.trim() || 'Finished the job.').replace(/<?\[\[[a-z -]+\]\]?>?/gi, ''));
         break;
       case 'stopped':
         quiet();
@@ -288,6 +297,7 @@ export function listen() {
         live.delete(aid); asking.delete(aid);
         post(aid, { from: 'agent', kind: 'problem', text: e.message });
         updateAgent(aid, { status: 'idle', statusText: 'Hit a problem' });
+        chime('oops');
         emit('work', { agent: aid, on: false });
         react(aid, 'worried');
         break;

@@ -150,8 +150,8 @@ export function settings(main) {
       <h2 class="sec-h">Agents</h2>
       <div class="set-list">
         ${tog('lively', 'Lively agents', 'They look around, blink and react to what you do')}
-        ${tog('notify', 'Notify me', 'When an agent needs your OK or finishes a job')}
-        ${tog('sounds', 'Sounds', 'Soft sounds for approvals and finished work')}
+        ${tog('notify', 'Notify me', 'A notification when an agent finishes or needs you, while Minus is in the background')}
+        ${tog('sounds', 'Sounds', 'A soft chime when an agent finishes or needs you')}
         ${rt.desktop && !island.supported() ? `<div class="set-row"><span class="set-t"><b>Ghost cursor</b><small>See where agents act on your screen, without them taking your mouse</small></span><button class="switch ${state.settings.ghost !== false ? 'on' : ''}" role="switch" aria-checked="${state.settings.ghost !== false}" data-ghost aria-label="Ghost cursor"><i></i></button></div>
         <div class="set-row"><span class="set-t"><b>Agent pace</b><small>How long agents pause before each action, so you can follow along</small></span>
           <div class="seg sm" role="radiogroup" aria-label="Agent pace">${PACES.map(([k, t]) => `<button role="radio" aria-checked="${pace() === k}" data-pace="${k}">${t}</button>`).join('')}</div></div>` : ''}

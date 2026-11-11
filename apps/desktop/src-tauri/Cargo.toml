@@ -22,6 +22,7 @@ base64 = "0.22"
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-deep-link = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-notification = "2"
 tauri-plugin-island = { version = "0.1.0", path = "../../../crates/tauri-plugin-island" }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync"] }
 

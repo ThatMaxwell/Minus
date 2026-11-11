@@ -9,6 +9,12 @@ import { openCreate } from './create.js';
 import { Listener, transcribe, hasKey, heardYou, speak, stopSpeaking, speaking, VoiceError } from '../voice.js';
 import { keySheet, connect } from './pages.js';
 import * as rt from '../runtime.js';
+import { musingHTML } from '../musing.js';
+
+// While it's thinking (not on a named step), the agent's status is a word that keeps changing.
+const GENERIC = /^(Thinking…|Starting|Writing…|Working)$/;
+const musing = (x) => x.status === 'working' && (!x.statusText || GENERIC.test(x.statusText));
+const statusHTML = (x) => (musing(x) ? musingHTML(x) : `<span>${esc(x.statusText || STATUS[x.status]?.label || '')}</span>`);
 import * as nb from '../notebook.js';
 import * as teach from '../teach.js';
 import { land } from '../drop.js';
@@ -36,7 +42,7 @@ export function chat(main) {
           <span class="ch-face">${face(a, 56, 'data-idle="1"')}</span>
           <div class="ch-id">
             <div class="ch-name"><b>${esc(a.name)}</b>${a.role ? `<span class="ch-role">${esc(a.role)}</span>` : ''}</div>
-            <span class="ch-status"><i class="dot ${STATUS[a.status]?.tone}"></i><span>${esc(a.statusText || STATUS[a.status]?.label)}</span></span>
+            <span class="ch-status"><i class="dot ${STATUS[a.status]?.tone}"></i><span class="ch-st">${statusHTML(a)}</span></span>
           </div>
         </div>
         <div class="ch-brain">
@@ -94,7 +100,7 @@ export function chat(main) {
   const render = () => {
     const msgs = state.threads[a.id] || [];
     let prev = null;
-    thread.innerHTML = msgs.map((m) => { const h = msgHTML(a, m, prev); prev = m; return h; }).join('') + `<div class="typing" ${a.status === 'working' && a.statusText === 'Thinking…' ? '' : 'hidden'}><span class="face-dots">${face(a, 22)}</span><span class="dots"><i></i><i></i><i></i></span></div>`;
+    thread.innerHTML = msgs.map((m) => { const h = msgHTML(a, m, prev); prev = m; return h; }).join('') + `<div class="typing" ${a.status === 'working' && a.statusText === 'Thinking…' ? '' : 'hidden'}><span class="face-dots">${face(a, 22)}</span>${musingHTML(a, 'mz-typing')}</div>`;
     mountMascots(thread, agent);
     thread.scrollTop = thread.scrollHeight;
   };
@@ -126,7 +132,8 @@ export function chat(main) {
   off.push(on('typing', ({ agent: aid, on: t }) => { if (aid === a.id) { $('.typing', thread).hidden = !t; if (t) thread.scrollTop = thread.scrollHeight; } }));
   off.push(on('agent', (x) => {
     if (x.id !== a.id) return;
-    $('.ch-status span', main).textContent = x.statusText || STATUS[x.status]?.label || '';
+    const st = $('.ch-st', main), next = musing(x) ? 'musing' : x.statusText || STATUS[x.status]?.label || '';
+    if (st.dataset.was !== next) { st.dataset.was = next; st.innerHTML = statusHTML(x); }
     $('.ch-status .dot', main).className = 'dot ' + (STATUS[x.status]?.tone || 'dim');
     $('.ch-h', main).classList.toggle('working', x.status === 'working');
     const live = $('.pcp-h .live', main); live.classList.toggle('on', x.status === 'working'); live.lastChild.textContent = x.status === 'working' ? 'Live' : 'Idle';
@@ -530,7 +537,7 @@ export function msgHTML(a, m, prev, cont) {
     const count = m.total ? `${m.done || 0}/${m.total}` : `${m.done || 0} step${m.done === 1 ? '' : 's'}`;
     const price = m.cost != null ? `<span class="st-cost" data-tip="What this job cost on your own API key so far">${m.cost < 0.01 ? '<$0.01' : '$' + m.cost.toFixed(2)}</span>` : '';
     body = `<div class="card steps ${m.live ? 'is-live' : ''}">
-      <div class="card-h">${icon('monitor')}<span>${esc(m.title)}</span>${price}<b>${count}</b></div>
+      <div class="card-h">${icon('monitor')}<span>${esc(m.title)}</span>${m.live ? musingHTML(a, 'mz-card') : ''}${price}<b>${count}</b></div>
       <div class="bar ${m.total ? '' : 'flow'}"><i style="width:${m.total ? pct : 100}%"></i></div>
       ${m.note && m.live ? `<p class="st-note">${esc(m.note)}</p>` : ''}
       <div class="st-list">${(m.steps || []).map((s, i, arr) => `<div class="st ${i === arr.length - 1 && m.live ? 'run' : 'done'}"><span class="ic">${i === arr.length - 1 && m.live ? '<i class="spin"></i>' : icon('check')}</span>${esc(s)}</div>`).join('') || (m.live ? '<div class="st run"><span class="ic"><i class="spin"></i></span>Starting…</div>' : '')}</div>

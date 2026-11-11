@@ -49,6 +49,11 @@ export function feel(agentId, emotion, ms = 5000) {
   mascotsOf(agentId).forEach((m) => { if (m.running === false) return; m.setEmotion(emotion); back(m, ms); });
 }
 
+// A gesture the agent made as it wrote (nod, shake…): every mascot of it does it, once.
+export function gesture(agentId, name) {
+  mascotsOf(agentId).forEach((m) => { if (m.running !== false) m.gesture(name); });
+}
+
 // Nobody touching anything for a while: everyone dozes off. Any input wakes them.
 export function idleWatch(ms = 60000) {
   let t = 0, asleep = false;

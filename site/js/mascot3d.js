@@ -269,7 +269,7 @@ class Eye {
     if (snap) { this.lo.set(this.tLo); this.up.set(this.tUp); }
   }
   update(dt, lx, ly, open, sx, sy, dy) {
-    const k = 1 - Math.exp(-dt * 16);
+    const k = 1 - Math.exp(-dt * 10);
     for (let i = 0; i < COLS; i++) { this.lo[i] += (this.tLo[i] - this.lo[i]) * k; this.up[i] += (this.tUp[i] - this.up[i]) * k; }
     const s = this.side, cx = s * EYE.gap + lx * 0.15, cy = EYE.y + ly * 0.11 + dy;
     const tilt = -s * EYE.tilt, c = Math.cos(tilt), sn = Math.sin(tilt), p = this.p;
@@ -323,6 +323,28 @@ export const slotOf = (name) => (FACE_ITEMS.has(name) ? 'face' : NECK_ITEMS.has(
 const VIS = typeof IntersectionObserver === 'function'
   ? new IntersectionObserver((es) => { for (const e of es) if (e.target._mascot) e.target._mascot.onscreen = e.isIntersecting; }, { rootMargin: '40px' })
   : null;
+// How a feeling moves the body (bounce when happy, droop when sad…), at time T, emoT into it.
+function bodyMotion(motion, T, emoT, headX) {
+  let bx = 0, by = 0, rz = 0, sqx = 0, sqy = 0, hx = 0;
+  switch (motion) {
+    case 'bounce': { const b = Math.abs(Math.sin(T * Math.PI * 2.2)); by = b * 0.05; sqy = (b - 0.5) * 0.03; break; }
+    case 'laugh': { const b = Math.abs(Math.sin(T * Math.PI * 3.6)); by = b * 0.045; sqy = (b - 0.5) * 0.05; rz = Math.sin(T * 7) * 0.03; break; }
+    case 'droop': by = -0.05; sqy = -0.03; sqx = 0.015; rz = Math.sin(T * 0.9) * 0.02; break;
+    case 'tremble': bx = Math.sin(T * 63) * 0.008; rz = Math.sin(T * 41) * 0.012; sqy = -0.015; break;
+    case 'fidget': bx = Math.sin(T * 47) * 0.004; rz = Math.sin(T * 1.7) * 0.03; sqy = -0.01; break;
+    case 'breathe': sqy = Math.sin(T * 1.6) * 0.025; sqx = -sqy * 0.6; rz = 0.09 + Math.sin(T * 0.8) * 0.02; by = -0.03; break;
+    case 'tilt': rz = Math.min(1, emoT * 5) * 0.14; break;
+    case 'lean': rz = Math.min(1, emoT * 4) * -0.1; sqy = 0.012; break;
+    case 'glance': rz = -headX * 0.05; break;
+    case 'ponder': rz = 0.08 + Math.sin(T * 1.1) * 0.03; break;
+    case 'work': by = Math.abs(Math.sin(T * 9)) * 0.012; break;
+    case 'steady': sqy = Math.sin(T * 2) * 0.01; hx = 0.08; break;
+    case 'shy': rz = -0.07 + Math.sin(T * 1.4) * 0.025; sqy = -0.02; break;
+    case 'chin': hx = -0.16; by = 0.02; break;
+    case 'startle': sqy = Math.max(0, 0.06 - emoT * 0.08); by = Math.max(0, 0.04 - emoT * 0.05); break;
+  }
+  return { bx, by, rz, sqx, sqy, hx };
+}
 const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 const bell = (f) => Math.sin(Math.PI * Math.min(1, Math.max(0, f)));
 
@@ -427,12 +449,16 @@ export class Mascot3D {
   setScale(s, instant = false) { this.pop.target = s; if (instant) { this.pop.x = s; this.pop.v = 0; } }
   setEmotion(name, snap = false) {
     const e = EMOTIONS[name] || EMOTIONS.neutral;
+    if (this.emo === e && !snap) return; // already feeling it: nothing restarts
+    // the way it was moving fades out while the new one fades in (see step)
+    this.was = snap || !this.emo ? null : { motion: this.emo.motion, t: this.emoT };
     this.emotion = EMOTIONS[name] ? name : 'neutral'; this.emo = e; this.emoT = 0;
     this.eyes[0].setTarget(e.L, snap); this.eyes[1].setTarget(e.R, snap);
     if (snap) Object.assign(this.st, { sx: e.scale || 1, sy: (e.scale || 1) * (e.sy || 1), dy: e.dy || 0, kL: e.kL || 1, kR: e.kR || 1, blush: e.blush || 0, tint: e.tint ? 1 : 0 });
     if (e.motion === 'startle' && !snap) this.pop.v += 9;
     if (e.motion === 'hops') this.hopT = 0;
-    if (!snap && !e.noBlink && name !== 'wink') this.blinkT === null && this.blink();
+    // a blink hides the change, but not every time (faces can change a lot while it talks)
+    if (!snap && !e.noBlink && name !== 'wink' && this.blinkT === null && this.t - (this.lastEmoBlink ?? -9) > 1.6) { this.lastEmoBlink = this.t; this.blink(); }
   }
   // outfit: { head, face, neck } — item names, or null/'none' to leave a slot empty
   setOutfit(outfit = {}) { for (const slot of ['head', 'face', 'neck']) this.wear(slot, outfit[slot]); }
@@ -476,6 +502,8 @@ export class Mascot3D {
     if (name === 'hop') return this.hop();
     const dur = { nod: 0.85, shake: 0.9, tilt: 1.3, bow: 1.1, spin: 0.95, celebrate: 1.3, shiver: 0.6, peek: 1.4, squish: 0.6 }[name];
     if (!dur) return;
+    // one already going doesn't jump: where it had got to eases away under the new one
+    if (this.g && this.gLast) this.gFade = { ...this.gLast, t: 0 };
     this.g = { name, t: 0, dur };
     if (name === 'celebrate') this.hopT = 0;
     if (name === 'peek') { this.look(-0.9, 0.1, { noBlink: true }); setTimeout(() => this.look(0.9, 0.1, { noBlink: true }), 450); setTimeout(() => this.look(0, 0), 950); this.pointerT = 1.5; }
@@ -593,24 +621,16 @@ export class Mascot3D {
     const h = dt / 4;
     for (let i = 0; i < 4; i++) [this.eyeX, this.eyeY, this.headX, this.headY, this.pop].forEach((s) => s.step(h));
 
-    // emotion body loop
-    let bx = 0, by = 0, rz = 0, sqx = 0, sqy = 0, hx = 0;
-    switch (e.motion) {
-      case 'bounce': { const b = Math.abs(Math.sin(T * Math.PI * 2.2)); by = b * 0.05; sqy = (b - 0.5) * 0.03; break; }
-      case 'laugh': { const b = Math.abs(Math.sin(T * Math.PI * 3.6)); by = b * 0.045; sqy = (b - 0.5) * 0.05; rz = Math.sin(T * 7) * 0.03; break; }
-      case 'droop': by = -0.05; sqy = -0.03; sqx = 0.015; rz = Math.sin(T * 0.9) * 0.02; break;
-      case 'tremble': bx = Math.sin(T * 63) * 0.008; rz = Math.sin(T * 41) * 0.012; sqy = -0.015; break;
-      case 'fidget': bx = Math.sin(T * 47) * 0.004; rz = Math.sin(T * 1.7) * 0.03; sqy = -0.01; break;
-      case 'breathe': sqy = Math.sin(T * 1.6) * 0.025; sqx = -sqy * 0.6; rz = 0.09 + Math.sin(T * 0.8) * 0.02; by = -0.03; break;
-      case 'tilt': rz = Math.min(1, this.emoT * 5) * 0.14; break;
-      case 'lean': rz = Math.min(1, this.emoT * 4) * -0.1; sqy = 0.012; break;
-      case 'glance': rz = -this.headX.x * 0.05; break;
-      case 'ponder': rz = 0.08 + Math.sin(T * 1.1) * 0.03; break;
-      case 'work': by = Math.abs(Math.sin(T * 9)) * 0.012; break;
-      case 'steady': sqy = Math.sin(T * 2) * 0.01; hx = 0.08; break;
-      case 'shy': rz = -0.07 + Math.sin(T * 1.4) * 0.025; sqy = -0.02; break;
-      case 'chin': hx = -0.16; by = 0.02; break;
-      case 'startle': sqy = Math.max(0, 0.06 - this.emoT * 0.08); by = Math.max(0, 0.04 - this.emoT * 0.05); break;
+    // emotion body loop: when the feeling changes, the old way of moving fades into the new one
+    let { bx, by, rz, sqx, sqy, hx } = bodyMotion(e.motion, T, this.emoT, this.headX.x);
+    if (this.was) {
+      const w = this.emoT / 0.55;
+      if (w >= 1) this.was = null;
+      else {
+        const o = bodyMotion(this.was.motion, T, this.was.t + this.emoT, this.headX.x), k = w * w * (3 - 2 * w);
+        bx = o.bx + (bx - o.bx) * k; by = o.by + (by - o.by) * k; rz = o.rz + (rz - o.rz) * k;
+        sqx = o.sqx + (sqx - o.sqx) * k; sqy = o.sqy + (sqy - o.sqy) * k; hx = o.hx + (hx - o.hx) * k;
+      }
     }
 
     // gesture (one-off, layered)
@@ -629,6 +649,14 @@ export class Mascot3D {
         case 'peek': gz = Math.sin(f * Math.PI * 2) * 0.08; break;
         case 'squish': gsq = bell(f); break;
       }
+    }
+
+    this.gLast = this.g ? { gx, gy, gz, spin, gby, gbx, gsq } : null;
+    if (this.gFade) {
+      const q = this.gFade; q.t += dt;
+      const k = Math.max(0, 1 - q.t / 0.28), w = k * k;
+      if (k <= 0) this.gFade = null;
+      else { gx += q.gx * w; gy += q.gy * w; gz += q.gz * w; gby += q.gby * w; gbx += q.gbx * w; gsq += q.gsq * w; spin += (q.spin % (Math.PI * 2)) * w; }
     }
 
     // hops (two arcs)
@@ -657,9 +685,9 @@ export class Mascot3D {
     this.rig.scale.set(p * (1 + dip * 0.03 + sqx - spring * 0.5 - air * 0.5 + gsq * 0.12), p * (1 - dip * 0.05 + sqy + spring + air - gsq * 0.16), p);
 
     // eyes, tint, blush
-    st.sx = smooth(st.sx, e.scale || 1, dt, 10); st.sy = smooth(st.sy, (e.scale || 1) * (e.sy || 1), dt, 10);
-    st.kL = smooth(st.kL, e.kL || 1, dt, 10); st.kR = smooth(st.kR, e.kR || 1, dt, 10);
-    st.dy = smooth(st.dy, e.dy || 0, dt, 10);
+    st.sx = smooth(st.sx, e.scale || 1, dt, 7); st.sy = smooth(st.sy, (e.scale || 1) * (e.sy || 1), dt, 7);
+    st.kL = smooth(st.kL, e.kL || 1, dt, 7); st.kR = smooth(st.kR, e.kR || 1, dt, 7);
+    st.dy = smooth(st.dy, e.dy || 0, dt, 7);
     st.tint = smooth(st.tint, e.tint ? 1 : 0, dt, 5);
     st.blush = smooth(st.blush, e.blush || 0, dt, 5);
     this.bodyMat.color.copy(this.baseColor).lerp(new THREE.Color(e.tint || '#000'), st.tint * 0.07);

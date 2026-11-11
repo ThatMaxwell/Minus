@@ -59,6 +59,8 @@ pub enum Event {
     Voice { text: String },
     /// Its face changed: the agent picks its own expressions (see `faces`).
     Face { name: String },
+    /// A gesture, right as it's written: nod, shake, tilt… (see `GESTURES`).
+    Gesture { name: String },
     /// Its browser went somewhere (so you can watch it live from its chat).
     Browse { url: String, title: String },
     /// It handed work to a teammate, who should start on it.
@@ -702,6 +704,12 @@ impl Runtime {
 /// The expressions an agent can show.
 pub const FACES: &[&str] = &["neutral", "happy", "laughing", "excited", "proud", "surprised", "alert", "curious", "listening", "thinking", "focused", "determined", "confused", "suspicious", "shy", "wink", "worried", "sad", "angry", "sleepy"];
 
+/// Body language an agent can use, as it writes (`<[[nod]`): it happens once, on top of the face.
+pub const GESTURES: &[&str] = &["nod", "shake", "tilt", "bow", "hop", "spin", "celebrate", "shiver", "peek", "squish"];
+fn known(n: &str) -> bool {
+    FACES.contains(&n) || GESTURES.contains(&n)
+}
+
 /// Agents show how they feel by writing a face code like `<[[happy]` anywhere in their text.
 /// The code is taken out before anyone sees the text; the face shows on the mascot instead.
 /// Models don't always write it exactly, so `[[happy]]`, `<[[happy]]` and `<[[happy]>` count too.
@@ -714,7 +722,7 @@ pub fn faces(text: &str) -> (String, Vec<String>) {
         // a known face; or any short word after "<[[" (models invent faces now and then: hide those too)
         let marked = rest[..i].ends_with('<');
         let face = after.find(']').filter(|&j| j <= 20).map(|j| (j, after[..j].trim().to_lowercase()))
-            .filter(|(_, n)| FACES.contains(&n.as_str()) || (marked && !n.is_empty() && n.chars().all(|c| c.is_alphabetic() || c == '-' || c == '_')));
+            .filter(|(_, n)| known(n) || (marked && !n.is_empty() && n.chars().all(|c| c.is_alphabetic() || c == '-' || c == '_')));
         match face {
             Some((j, name)) => {
                 // drop a '<' right before it, and the extra ']' or '>' some models add after
@@ -724,7 +732,7 @@ pub fn faces(text: &str) -> (String, Vec<String>) {
                 for c in [']', '>'] {
                     tail = tail.strip_prefix(c).unwrap_or(tail);
                 }
-                if FACES.contains(&name.as_str()) {
+                if known(&name) {
                     found.push(name);
                 }
                 rest = tail;
@@ -758,12 +766,12 @@ pub fn voiced(text: &str) -> String {
         let after = &rest[i + 2..];
         let marked = rest[..i].ends_with('<');
         let code = after.find(']').filter(|&j| j <= 24).map(|j| (j, after[..j].trim().to_lowercase()))
-            .filter(|(_, n)| FACES.contains(&n.as_str()) || (marked && !n.is_empty() && n.chars().all(|c| c.is_alphabetic() || c == ' ' || c == '-')));
+            .filter(|(_, n)| known(n) || (marked && !n.is_empty() && n.chars().all(|c| c.is_alphabetic() || c == ' ' || c == '-')));
         match code {
             Some((j, name)) => {
                 let before = &rest[..i];
                 out.push_str(before.strip_suffix('<').unwrap_or(before));
-                let dir = VOICE.iter().find(|(f, _)| *f == name).map(|(_, d)| d.to_string()).unwrap_or(name);
+                let dir = if GESTURES.contains(&name.as_str()) { String::new() } else { VOICE.iter().find(|(f, _)| *f == name).map(|(_, d)| d.to_string()).unwrap_or(name) };
                 if !dir.is_empty() {
                     out.push_str(&format!(" [{dir}] "));
                 }
@@ -794,6 +802,11 @@ fn unfinished_face(text: &str) -> &str {
     }
 }
 
+/// A code the agent wrote, as what the person sees: a face, or a gesture.
+fn cue(name: String) -> Event {
+    if GESTURES.contains(&name.as_str()) { Event::Gesture { name } } else { Event::Face { name } }
+}
+
 /// Wraps `emit` so face codes never reach the screen: they become Face events.
 fn with_faces(emit: Emit) -> Emit {
     // the faces already shown from the reply being written (so they show as it's written, once)
@@ -807,7 +820,7 @@ fn with_faces(emit: Emit) -> Emit {
                     *l = (0, String::new()); // a new reply: start counting again
                 }
                 for name in found.iter().skip(l.0) {
-                    emit(Event::Face { name: name.clone() });
+                    emit(cue(name.clone()));
                 }
                 l.0 = l.0.max(found.len());
                 l.1 = text.clone();
@@ -840,7 +853,7 @@ fn with_faces(emit: Emit) -> Emit {
             other => other,
         };
         for name in shown.into_iter().skip(skip) {
-            emit(Event::Face { name });
+            emit(cue(name));
         }
         if let Some(v) = voice {
             emit(Event::Voice { text: v });
@@ -992,6 +1005,10 @@ pub fn system_prompt(a: &AgentSpec, computer: bool, browser: bool) -> String {
         "\nYour face: the person sees you as a small animated character. You choose its expression by writing a face code anywhere in what you write, like <[[happy] or <[[thinking]. The code is hidden from the person; they only see your face change. Use it naturally when your mood changes (pleased with a result, unsure, worried about a risk), not in every sentence, and never mention the codes. Faces: {}.\n",
         FACES.join(", ")
     ));
+    p.push_str(&format!(
+        "Your body language: write a gesture code the same way and your character does it right then, as the person reads: {}. Nod when you agree or confirm, shake for no or a problem, tilt when puzzled, bow to say sorry or thanks, hop or celebrate for good news, shiver when something's scary, peek when shy. Once in a while, where it fits.\n",
+        GESTURES.iter().map(|g| format!("<[[{g}]")).collect::<Vec<_>>().join(", ")
+    ));
     p.push_str("Your voice: when the person has your messages read aloud, your face codes set your tone of voice too, from that point on. For a tone that isn't a face, write a short direction the same way, right before the words it's for: <[[whisper], <[[warm], <[[dramatic], <[[deadpan], <[[sarcastic] (one or two words). Use them where they help, not in every sentence.\n");
     p
 }
@@ -1052,6 +1069,8 @@ mod tests {
         assert_eq!(faces("Hmm [[thinking]] let me check"), ("Hmm let me check".into(), vec!["thinking".into()]));
         assert_eq!(faces("Ok <[[wink]> bye").0, "Ok bye");
         assert_eq!(faces("see [[my notes]] here").0, "see [[my notes]] here");
+        assert_eq!(faces("Sim <[[nod] claro"), ("Sim claro".into(), vec!["nod".into()]));
+        assert_eq!(voiced("Sim <[[nod] claro <[[happy] ok"), "Sim claro [cheerful] ok");
         assert_eq!(unfinished_face("Pronto! <[[hap"), "Pronto! ");
         assert_eq!(unfinished_face("Pronto! <"), "Pronto! ");
         assert_eq!(unfinished_face("Tudo certo."), "Tudo certo.");
