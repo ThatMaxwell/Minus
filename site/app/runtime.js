@@ -199,6 +199,7 @@ export function listen() {
   refreshKeys();
   applyPace();
   codeStatus();
+  setTimeout(() => import('./update.js').then((u) => u.checkUpdate()).catch(() => {}), 4000);
   tauri.core.invoke('agent_caps').then((c) => { if (c) { caps = c; emit('caps', c); } }).catch(() => {});
   // your real cloud computers
   if (!/Android/i.test(navigator.userAgent)) import('./cloud.js').then((c) => c.sync()).catch(() => {});

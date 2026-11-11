@@ -182,6 +182,12 @@ struct Caps {
     browser: bool,
     platform: &'static str,
 }
+/// Which commit this app was built from (set by CI), to know when an update is out.
+#[tauri::command]
+fn app_build() -> Option<&'static str> {
+    option_env!("MINUS_BUILD")
+}
+
 #[tauri::command]
 fn agent_caps(rt: tauri::State<'_, Agents>) -> Caps {
     Caps { computer: rt.0.has_computer(), browser: rt.0.has_browser(), platform: std::env::consts::OS }
@@ -795,11 +801,11 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
 /// The commands the app's pages can call.
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![attach_save, hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout, claude_code_status, claude_code_signin, cloud_connect, cloud_disconnect, cloud_regions, cloud_list, cloud_create, cloud_refresh, cloud_power, cloud_delete, orpheus_install, orpheus_codes, orpheus_remove]
+    tauri::generate_handler![app_build, attach_save, hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout, claude_code_status, claude_code_signin, cloud_connect, cloud_disconnect, cloud_regions, cloud_list, cloud_create, cloud_refresh, cloud_power, cloud_delete, orpheus_install, orpheus_codes, orpheus_remove]
 }
 #[cfg(mobile)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![attach_save, hands_windows, hands_look, hands_act, hands_screen, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout]
+    tauri::generate_handler![app_build, attach_save, hands_windows, hands_look, hands_act, hands_screen, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout]
 }
 
 /// When Minus can't start or hits a bug it can't recover from, say so (a popup on Windows,
