@@ -13,9 +13,46 @@ pub static PACE_MS: AtomicU64 = AtomicU64::new(140);
 /// Our own tools, as JSON Schema. Declared once at the start of a conversation and never
 /// changed, so the prompt cache and the model's earlier reasoning stay valid.
 /// The tools an agent gets. Without a computer to control (a phone, or a system Minus Hands
-/// doesn't support yet), it gets only the ones that don't need one.
-pub fn custom_tools(computer: bool) -> Vec<Value> {
+/// doesn't support yet), it gets only the ones that don't need one. The web tools work
+/// everywhere; its own browser, wherever a Chromium-family browser is installed.
+pub fn custom_tools(computer: bool, browser: bool) -> Vec<Value> {
     let all = vec![
+        json!({
+            "name": "web_search",
+            "description": "Search the web (free, no account). Returns the top results with their address and a snippet. Then read the ones that matter with `read_page` (or open them in your browser).",
+            "input_schema": {"type": "object", "properties": {"query": {"type": "string", "description": "What to search for, like you'd type it into a search engine."}}, "required": ["query"]}
+        }),
+        json!({
+            "name": "read_page",
+            "description": "Read a web page as plain text (title and what it says), without opening a browser. Fast; best for articles, docs and facts. For pages that need clicking, signing in or JavaScript, use your browser instead.",
+            "input_schema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}
+        }),
+        json!({
+            "name": "browser_open",
+            "description": "Open a website in your own browser (private, separate from the person's, and they can watch it live). Returns the page as you see it: the numbered things you can use (links, buttons, fields) and its text.",
+            "input_schema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}
+        }),
+        json!({
+            "name": "browser_look",
+            "description": "See the page in your browser again: its numbered links, buttons and fields, and its text. Numbers change when the page changes, so look again after anything big happens.",
+            "input_schema": {"type": "object", "properties": {}}
+        }),
+        json!({
+            "name": "browser_act",
+            "description": "Do things in your browser, in order, using numbers from your latest look; returns the page afterwards. Batch what you can (type into the search box and press Enter in one go).\n\nActions (`do`):\n- click {id}\n- type {id, text, enter?}: replace a field's text; enter: true presses Enter after\n- select {id, text}: pick an option in a list\n- key {keys}: enter, tab, escape, backspace, up, down, pagedown...\n- scroll {dy}: pixels, positive scrolls down (about 800 is a screen)\n- open {text}: go to an address\n- back\n- wait {ms}",
+            "input_schema": {"type": "object", "properties": {
+                "actions": {"type": "array", "items": {"type": "object", "properties": {
+                    "do": {"type": "string", "enum": ["click", "type", "select", "key", "scroll", "open", "back", "wait"]},
+                    "id": {"type": "integer"},
+                    "text": {"type": "string"},
+                    "enter": {"type": "boolean"},
+                    "keys": {"type": "string"},
+                    "dy": {"type": "number"},
+                    "ms": {"type": "integer"}
+                }, "required": ["do"]}}
+            }, "required": ["actions"]}
+        }),
+
         json!({
             "name": "look",
             "description": "Read a window as an outline of its elements: buttons, fields, links, lists, with their [number], name, value and state. Call it before acting in a window you haven't seen yet, and when you're unsure what's on screen. Without `window` it reads the window in front.",
@@ -88,7 +125,13 @@ pub fn custom_tools(computer: bool) -> Vec<Value> {
         }),
     ];
     const NEEDS_COMPUTER: [&str; 4] = ["look", "windows", "act", "use_skill"];
-    all.into_iter().filter(|t| computer || !NEEDS_COMPUTER.contains(&t["name"].as_str().unwrap_or(""))).collect()
+    const NEEDS_BROWSER: [&str; 3] = ["browser_open", "browser_look", "browser_act"];
+    all.into_iter()
+        .filter(|t| {
+            let n = t["name"].as_str().unwrap_or("");
+            (computer || !NEEDS_COMPUTER.contains(&n)) && (browser || !NEEDS_BROWSER.contains(&n))
+        })
+        .collect()
 }
 
 /// Parsed `act` input.

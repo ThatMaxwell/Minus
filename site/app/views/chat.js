@@ -1,6 +1,6 @@
 // A conversation with one agent, its live computer, and the composer.
 import { state, on, agent, computer, updateAgent, go, emit, save, providerState, post, id, APP, patchMessage } from '../store.js';
-import { $, $$, esc, icon, face, mountMascots, mascotsOf, menu, sheet, toast, motion, IN, mod, timeAgo } from '../ui.js';
+import { $, $$, esc, md, icon, face, mountMascots, mascotsOf, menu, sheet, toast, motion, IN, mod, timeAgo } from '../ui.js';
 import { react } from '../director.js';
 import { respond, choose, resolve } from '../brain.js';
 import { provider, PROVIDERS, STATUS } from '../data.js';
@@ -30,24 +30,32 @@ export function chat(main) {
   const comp = computer(a.computer), prov = provider(a.model);
   main.innerHTML = `
     <section class="chat ${state.panel ? 'with-panel' : ''}">
-      <header class="ch-h">
+      <header class="ch-h ${a.status === 'working' ? 'working' : ''}" style="--ac:${esc(a.color || '#f3f2ee')}">
         <button class="icon-btn ch-back" data-act="back" aria-label="Back to your agents">${icon('back')}</button>
         <div class="ch-who">
-          ${face(a, 46, 'data-follow="1"')}
-          <div class="ch-id"><b>${esc(a.name)}</b><span class="ch-status"><i class="dot ${STATUS[a.status]?.tone}"></i><span>${esc(a.statusText || STATUS[a.status]?.label)}</span></span></div>
+          <span class="ch-face">${face(a, 56, 'data-idle="1"')}</span>
+          <div class="ch-id">
+            <div class="ch-name"><b>${esc(a.name)}</b>${a.role ? `<span class="ch-role">${esc(a.role)}</span>` : ''}</div>
+            <span class="ch-status"><i class="dot ${STATUS[a.status]?.tone}"></i><span>${esc(a.statusText || STATUS[a.status]?.label)}</span></span>
+          </div>
+        </div>
+        <div class="ch-brain">
+          <button class="ch-seg" data-act="model" data-tip="Which AI ${esc(a.name)} thinks with">${prov.icon}<span>${esc(prov.name)}</span>${rt.modelOf(a) ? `<small>${esc(String(rt.modelOf(a)).split('/').pop())}</small>` : ''}${icon('chevron', 'rot')}</button>
+          <i class="ch-div"></i>
+          <button class="ch-seg" data-act="computer" data-tip="Which computer ${esc(a.name)} works on">${icon(comp?.kind === 'local' ? 'laptop' : 'cloud')}<span>${esc(comp?.name || 'No computer')}</span>${icon('chevron', 'rot')}</button>
         </div>
         <div class="ch-tools">
-          <button class="chip" data-act="model" data-tip="Which AI ${esc(a.name)} thinks with">${prov.icon}<span>${esc(prov.name)}</span>${icon('chevron', 'rot')}</button>
-          <button class="chip" data-act="computer" data-tip="Which computer ${esc(a.name)} works on">${icon(comp?.kind === 'local' ? 'laptop' : 'cloud')}<span>${esc(comp?.name || 'No computer')}</span>${icon('chevron', 'rot')}</button>
-          <span class="sep"></span>
           <button class="icon-btn" data-act="rewind" data-tip="Rewind: go back to an earlier moment and continue from there">${icon('rewind')}</button>
           <button class="icon-btn" data-act="teach" data-tip="Show me once: do a job while ${esc(a.name)} watches, and it learns how">${icon('showme')}</button>
           <button class="icon-btn nb-btn" data-act="notebook" data-tip="${esc(a.name)}’s notebook: what it has learned">${icon('book')}<span class="nb-count" ${nb.count(a) ? '' : 'hidden'}>${nb.count(a)}</span></button>
           <button class="icon-btn" data-act="look" data-tip="Change how ${esc(a.name)} looks">${icon('sparkle')}</button>
+          <span class="sep"></span>
+          <button class="icon-btn web-btn ${rt.isBrowsing(a.id) ? 'live' : ''}" data-act="browser" data-tip="Watch ${esc(a.name)}’s browser, live">${icon('globe')}</button>
           <button class="icon-btn" data-act="pause" data-tip="${a.status === 'paused' ? 'Resume' : 'Pause'} ${esc(a.name)}">${icon(a.status === 'paused' ? 'play' : 'pause')}</button>
           <button class="icon-btn ${state.panel ? 'on' : ''}" data-act="panel" data-tip="${state.panel ? 'Hide' : 'Show'} the computer|mod .">${icon('panel')}</button>
           <button class="icon-btn" data-act="more" data-tip="More">${icon('more')}</button>
         </div>
+        <i class="ch-work" aria-hidden="true"></i>
       </header>
       <div class="ch-body">
         <div class="thread-col">
@@ -68,10 +76,12 @@ export function chat(main) {
             <p class="cmp-hint">${esc(a.name)} works on ${esc(comp?.name || 'its computer')} and asks before anything it can’t undo. <kbd>Shift</kbd> <kbd>Enter</kbd> for a new line.</p>
           </form>
         </div>
-        <aside class="pc-panel" aria-label="${esc(a.name)}’s computer">
-          <div class="pcp-h"><span class="live ${a.status === 'working' ? 'on' : ''}"><i></i>${a.status === 'working' ? 'Live' : 'Idle'}</span><span class="pcp-name">${esc(comp?.name || '')}</span>
+        <aside class="pc-panel view-${state.panelView === 'browser' ? 'browser' : 'screen'}" aria-label="${esc(a.name)}’s computer">
+          <div class="pcp-h"><span class="live ${a.status === 'working' ? 'on' : ''}"><i></i>${a.status === 'working' ? 'Live' : 'Idle'}</span>
+            <span class="pcp-seg" role="tablist"><button role="tab" data-view="screen">${icon('laptop')}<span>Screen</span></button><button role="tab" data-view="browser">${icon('globe')}<span>Browser</span></button></span><span class="grow"></span>
             <button class="btn btn-quiet btn-xs" data-act="takeover" data-tip="Use the mouse and keyboard yourself">${icon('hand')}<span>Take over</span></button></div>
-          <div class="pcp-screen"><div class="pcp-sim"></div><div class="pcp-yours" hidden><div>${icon('hand')}<b>You’re driving</b><span>${esc(a.name)} is watching and will pick up where you leave off.</span><button class="btn btn-primary btn-sm" data-act="giveback">Give back to ${esc(a.name)}</button></div></div></div>
+          <div class="pcp-screen"><div class="pcp-sim"></div>
+            <div class="pcp-web"><div class="pcp-addr">${icon('lock')}<span class="pcp-url">No page open</span></div><div class="pcp-page"><img alt="${esc(a.name)}’s browser, live" hidden><p class="pcp-msg">When ${esc(a.name)} uses the web, its browser shows up here, live. It’s private: separate from yours.</p></div></div><div class="pcp-yours" hidden><div>${icon('hand')}<b>You’re driving</b><span>${esc(a.name)} is watching and will pick up where you leave off.</span><button class="btn btn-primary btn-sm" data-act="giveback">Give back to ${esc(a.name)}</button></div></div></div>
           <div class="pcp-log"><div class="pcp-log-h"><span>Action log</span><span class="muted">${esc(comp?.os || '')}</span></div><div class="pcp-rows"></div></div>
         </aside>
       </div>
@@ -104,9 +114,9 @@ export function chat(main) {
     if (aid !== a.id) return;
     const node = $(`[data-mid="${CSS.escape(msg.mid || msg.id)}"]`, thread); if (!node) return;
     // a reply being written: just the words change (no re-render, five times a second)
-    const p = msg.live && msg.from === 'agent' && !msg.kind ? node.querySelector('p') : null;
-    if (p?.firstChild?.nodeType === 3) {
-      p.firstChild.nodeValue = msg.text; node.classList.add('streaming');
+    const p = msg.live && msg.from === 'agent' && !msg.kind ? node.querySelector('.md') : null;
+    if (p) {
+      p.innerHTML = md(msg.text); node.classList.add('streaming');
       if (thread.scrollHeight - thread.scrollTop - thread.clientHeight < 160) thread.scrollTop = thread.scrollHeight;
       return;
     }
@@ -118,6 +128,7 @@ export function chat(main) {
     if (x.id !== a.id) return;
     $('.ch-status span', main).textContent = x.statusText || STATUS[x.status]?.label || '';
     $('.ch-status .dot', main).className = 'dot ' + (STATUS[x.status]?.tone || 'dim');
+    $('.ch-h', main).classList.toggle('working', x.status === 'working');
     const live = $('.pcp-h .live', main); live.classList.toggle('on', x.status === 'working'); live.lastChild.textContent = x.status === 'working' ? 'Live' : 'Idle';
   }));
 
@@ -126,6 +137,8 @@ export function chat(main) {
     if (b) { const card = b.closest('[data-mid]'); return resolve(a.id, card.dataset.mid, b.dataset.ap); }
     const c = e.target.closest('[data-choice]');
     if (c) { const card = c.closest('[data-mid]'); return choose(a.id, card.dataset.mid, c.dataset.choice); }
+    const link = e.target.closest('.md a[href]');
+    if (link) { e.preventDefault(); const u = link.href; return window.__TAURI__?.opener ? window.__TAURI__.opener.openUrl(u) : window.open(u, '_blank', 'noopener'); }
     const cn = e.target.closest('[data-connect]');
     if (cn) return connect(cn.dataset.connect, () => {});
     const hr = e.target.closest('[data-here]');
@@ -252,7 +265,7 @@ export function chat(main) {
     if (speaking()?.mid === mid) return stopSpeaking();
     if (!hasKey()) return keySheet(() => b.click());
     const m = (state.threads[a.id] || []).find((x) => x.mid === mid);
-    if (m) speak(a.id, m.text, { mid }).catch((err) => toast(err.human || 'Voice didn’t work this time.', { icon: 'speaker' }));
+    if (m) speak(a.id, m.voice || m.text, { mid }).catch((err) => toast(err.human || 'Voice didn’t work this time.', { icon: 'speaker' }));
   });
   // when it learns something, a note flies into its notebook
   off.push(on('remember', ({ agent: aid, note }) => {
@@ -278,6 +291,37 @@ export function chat(main) {
     while (rows.children.length > 40) rows.lastChild.remove();
   };
   let driving = false, syncSim = () => {};
+  // the panel shows the computer's screen or the agent's own browser
+  const panel = $('.pc-panel', main);
+  let webTimer = 0, webGone = false;
+  const webTick = async () => {
+    clearTimeout(webTimer);
+    if (webGone || !main.contains(panel) || !state.panel || state.panelView !== 'browser') return;
+    const img = $('.pcp-page img', panel), msg = $('.pcp-page .pcp-msg', panel), url = $('.pcp-url', panel);
+    if (!APP) { msg.textContent = 'In the Minus app, each agent has its own browser, and you can watch it here live.'; return; }
+    if (!rt.canBrowse()) { msg.textContent = 'Agents get their own browser when Chrome, Edge or Brave is installed.'; return; }
+    try {
+      const f = document.visibilityState === 'visible' ? await rt.browserFrame(a.id) : null;
+      if (f?.jpeg) { img.src = 'data:image/jpeg;base64,' + f.jpeg; img.hidden = false; msg.hidden = true; url.textContent = f.url.replace(/^https?:\/\/(www\.)?/, ''); url.title = f.title; }
+    } catch { /* the browser is starting, or closed: try again shortly */ }
+    webTimer = setTimeout(webTick, agent(a.id)?.status === 'working' ? 500 : 2000);
+  };
+  const setView = (v) => {
+    state.panelView = v; save();
+    panel.classList.toggle('view-browser', v === 'browser'); panel.classList.toggle('view-screen', v !== 'browser');
+    $$('.pcp-seg [data-view]', panel).forEach((b) => b.setAttribute('aria-selected', String(b.dataset.view === v)));
+    $('[data-act="browser"]', main)?.classList.toggle('on', state.panel && v === 'browser');
+    webTick();
+  };
+  panel.addEventListener('click', (e) => { const b = e.target.closest('[data-view]'); if (b) setView(b.dataset.view); });
+  off.push(() => { webGone = true; clearTimeout(webTimer); });
+  off.push(on('browse', ({ agent: aid }) => {
+    if (aid !== a.id) return;
+    $('[data-act="browser"]', main)?.classList.add('live');
+    // it went on the web: show its browser, if you're watching its computer
+    if (state.panel && state.panelView !== 'browser') setView('browser');
+  }));
+  setView(state.panelView === 'browser' ? 'browser' : 'screen');
   if (APP) {
     const box = $('.pcp-sim', main);
     box.innerHTML = `<div class="pcp-live"><img alt="${esc(a.name)}’s screen, live"><i class="pcp-mark" hidden></i></div><p class="pcp-msg" hidden></p>`;
@@ -291,7 +335,7 @@ export function chat(main) {
         msg.textContent = /Android/i.test(navigator.userAgent) ? 'Agents on your phone think and write; they don’t use a screen.' : 'Minus can see and use the screen on Windows for now. Mac and Linux are next. Agents here think and write in the meantime.';
         return;
       }
-      if (state.panel && document.visibilityState === 'visible') {
+      if (state.panel && state.panelView !== 'browser' && document.visibilityState === 'visible') {
         try {
           shot = await window.__TAURI__.core.invoke('hands_screen', { maxEdge: 1100 });
           if (!shot?.png) throw new Error('no picture of the screen came back');
@@ -344,6 +388,13 @@ export function chat(main) {
       return chat(main);
     }
     if (act === 'panel') { state.panel = !state.panel; save(); return chat(main); }
+    if (act === 'browser') {
+      // the agent's own browser, live, in the panel (a second press puts it away)
+      if (state.panel && state.panelView === 'browser') { state.panel = false; save(); return chat(main); }
+      state.panelView = 'browser';
+      if (!state.panel) { state.panel = true; save(); return chat(main); }
+      save(); return setView('browser');
+    }
     if (act === 'more') return menu(b, [
       { label: 'Rename', icon: 'edit', run: () => rename(a, main) },
       { label: 'Change look', icon: 'sparkle', run: () => openCreate({ edit: a.id, step: 0 }) },
@@ -435,7 +486,6 @@ export function chat(main) {
   }
 
   // the agent glances at whatever header button you point at
-  $('.ch-tools', main).addEventListener('pointerover', (e) => { const b = e.target.closest('button'); if (b) mascotsOf(a.id).forEach((m) => main.contains(m.canvas) && $('.ch-h', main).contains(m.canvas) && m.lookAtEl(b, 1.5)); });
 }
 
 export function msgHTML(a, m, prev, cont) {
@@ -500,7 +550,7 @@ export function msgHTML(a, m, prev, cont) {
       ${done ? '' : `<div class="ask-btns"><button class="btn btn-quiet btn-sm" data-ap="declined" data-tip="${esc(a.name)} won’t do it">Decline</button><button class="btn btn-primary btn-sm" data-ap="approved" data-tip="Let ${esc(a.name)} do it">Approve</button></div>`}
     </div>`;
   } else {
-    body = `<p>${esc(m.text)}<button class="say" data-say data-tip="Read aloud" aria-label="Read aloud"><span class="say-bars"><i></i><i></i><i></i></span>${icon('speaker')}</button></p>` + (m.choices ? `<div class="choices">${m.choices.map((c) => `<button class="chip" data-choice="${esc(c)}" ${m.chosen ? 'disabled' : ''} ${m.chosen === c ? 'aria-pressed="true"' : ''}>${esc(c)}</button>`).join('')}</div>` : '');
+    body = `<div class="md">${md(m.text)}</div><button class="say" data-say data-tip="Read aloud" aria-label="Read aloud"><span class="say-bars"><i></i><i></i><i></i></span>${icon('speaker')}</button>` + (m.choices ? `<div class="choices">${m.choices.map((c) => `<button class="chip" data-choice="${esc(c)}" ${m.chosen ? 'disabled' : ''} ${m.chosen === c ? 'aria-pressed="true"' : ''}>${esc(c)}</button>`).join('')}</div>` : '');
   }
   return `<div class="m ag ${sameRun ? 'cont' : ''}" data-mid="${mid}">${head}<div class="m-body">${name}${body}</div></div>`;
 }

@@ -109,6 +109,16 @@ export async function transcribe(blob) {
 /* ───────── speaking ───────── */
 // Orpheus reads up to 200 characters per request: split at sentence ends, then at commas.
 export function chunks(text, max = 190) {
+  const out = split(text, max);
+  // a voice direction ([cheerful]) lasts until the next one, even across pieces
+  let tone = '';
+  return out.map((c) => {
+    const starts = /^\[[a-z][a-z -]{0,22}\]/i.test(c), had = tone;
+    const all = c.match(/\[[a-z][a-z -]{0,22}\]/gi); if (all) tone = all[all.length - 1];
+    return !starts && had ? `${had} ${c}` : c;
+  });
+}
+function split(text, max) {
   const clean = text.replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').replace(/→/g, ' to ').trim();
   const out = [];
   for (let s of clean.match(/[^.!?…]+[.!?…]*["”’)]?\s*/g) || [clean]) {

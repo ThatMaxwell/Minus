@@ -42,7 +42,7 @@ document.documentElement.classList.toggle('calm', !state.settings.lively);
 const app = $('#app');
 app.innerHTML = `
   <header class="titlebar" data-tauri-drag-region>
-    <div class="tb-l">${isMac ? '<span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span>' : ''}<span class="logo">${avatarSVG(COLORS.cloud, { box: 112 })}<b>minus</b></span><span class="beta">Beta</span></div>
+    <div class="tb-l">${isMac ? '<span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span>' : ''}<span class="logo">${avatarSVG(COLORS.cloud, { box: 112 })}<b>minus</b></span><span class="beta">Beta</span><span class="grow"></span><button class="icon-btn tb-side" data-side data-tip="Hide or show the sidebar|mod B" aria-label="Hide or show the sidebar">${icon('sidebar')}</button></div>
     <button class="tb-search" data-palette data-tip="Jump anywhere|mod K">${icon('search')}<span>Search agents and actions</span><kbd>${isMac ? '⌘' : 'Ctrl'} K</kbd></button>
     <div class="tb-r"><button class="icon-btn" data-go-approvals data-tip="Approvals">${icon('bell')}</button><button class="icon-btn" data-help data-tip="Keyboard shortcuts">${icon('keyboard')}</button>${tauri && !isMac ? `<span class="wc"><button data-wc="min" aria-label="Minimize"><svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg></button><button data-wc="max" aria-label="Maximize"><svg viewBox="0 0 12 12"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="1"/></svg></button><button data-wc="close" class="wc-x" aria-label="Close to the tray"><svg viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button></span>` : ''}</div>
   </header>
@@ -52,6 +52,11 @@ app.innerHTML = `
 if (phone) dock(app);
 
 sidebar($('.side'));
+// the sidebar folds down to a slim rail of icons and faces (remembered)
+const sideMin = () => app.classList.toggle('side-min', !!state.settings.sideMin);
+const toggleSide = () => { state.settings.sideMin = !state.settings.sideMin; save(); sideMin(); };
+sideMin();
+$('[data-side]', app).addEventListener('click', toggleSide);
 const main = $('.main');
 const views = { chat, approvals, routines, computers, settings, standup, room, home };
 const render = () => {
@@ -87,13 +92,14 @@ addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === 'k') { e.preventDefault(); palette(); }
   if (k === 'n') { e.preventDefault(); openCreate(); }
+  if (k === 'b') { e.preventDefault(); toggleSide(); }
   if (k === ',') { e.preventDefault(); go('settings'); }
   if (k === '.') { e.preventDefault(); state.panel = !state.panel; save(); if (state.route.view === 'chat') render(); }
 });
 
 function shortcuts() {
   import('./ui.js').then(({ sheet, mod }) => {
-    const rows = [['Jump anywhere', `${mod} K`], ['New agent', `${mod} N`], ['Show or hide the computer', `${mod} .`], ['Settings', `${mod} ,`], ['Send a message', 'Enter'], ['Talk to the agent', `${mod} J`], ['New line', 'Shift Enter'], ['Close a window', 'Esc']];
+    const rows = [['Jump anywhere', `${mod} K`], ['New agent', `${mod} N`], ['Hide or show the sidebar', `${mod} B`], ['Show or hide the computer', `${mod} .`], ['Settings', `${mod} ,`], ['Send a message', 'Enter'], ['Talk to the agent', `${mod} J`], ['New line', 'Shift Enter'], ['Close a window', 'Esc']];
     sheet(`<div class="mini-form"><h3>Keyboard shortcuts</h3><dl class="keys">${rows.map(([t, k]) => `<div><dt>${t}</dt><dd>${k.split(' ').map((x) => `<kbd>${x}</kbd>`).join(' ')}</dd></div>`).join('')}</dl></div>`, { cls: 'small' });
   });
 }

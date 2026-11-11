@@ -101,8 +101,10 @@ async fn a_whole_job_with_a_tool_call() {
     if !rt.has_computer() {
         // no computer to use here: no computer tools, and the agent is told so
         assert!(!tools.contains(&"look") && !tools.contains(&"act"), "{tools:?}");
-        assert!(seen[0].body["messages"][0]["content"].as_str().unwrap().contains("can't click"));
+        assert!(seen[0].body["messages"][0]["content"].as_str().unwrap().contains("can't use the person's apps"));
     }
+    // the web, everywhere
+    assert!(tools.contains(&"web_search") && tools.contains(&"read_page"), "{tools:?}");
     assert!(seen[0].body["messages"][0]["content"].as_str().unwrap().contains("language the person writes in"));
     // the second request carries the tool's result
     let msgs = seen[1].body["messages"].as_array().unwrap();
@@ -202,4 +204,51 @@ async fn a_streamed_reply_with_a_signed_tool_call() {
     let call = msgs.iter().find(|m| m["role"] == "assistant").unwrap();
     assert_eq!(call["tool_calls"][0]["extra_content"]["google"]["thought_signature"], "SIG123");
     assert_eq!(call["tool_calls"][0]["function"]["arguments"], "{\"note\":\"Karla likes tea\"}");
+}
+
+/// A tiny website: the same page for every address.
+fn site(html: &'static str) -> String {
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", l.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for conn in l.incoming() {
+            let Ok(mut s) = conn else { break };
+            let mut r = BufReader::new(s.try_clone().unwrap());
+            let mut line = String::new();
+            while r.read_line(&mut line).map(|n| n > 0).unwrap_or(false) && line != "\r\n" { line.clear(); }
+            let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{html}", html.len());
+        }
+    });
+    url
+}
+
+/// The agent's own browser, driven by the AI through the real tools: it opens a page, fills in
+/// a form and submits it, and the AI sees the result. Needs a Chromium-family browser
+/// (MINUS_BROWSER=... to point at one); skipped without one.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_agents_own_browser() {
+    let rt = Runtime::new(std::env::temp_dir().join(format!("minus-test-w-{}", std::process::id())));
+    if !rt.has_browser() {
+        eprintln!("no browser here: skipped");
+        return;
+    }
+    let page = site(r#"<!doctype html><meta charset="utf-8"><title>Voos</title><form onsubmit="event.preventDefault(); out.textContent = 'Resultados para ' + q.value + ': TAP R$ 2.890';"><input id="q" placeholder="Para onde?"><button>Buscar</button></form><p id="out"></p>"#);
+    let call = |id: &str, name: &str, args: Value| reply(json!({"role": "assistant", "content": null, "tool_calls": [{"id": id, "type": "function", "function": {"name": name, "arguments": args.to_string()}}]}));
+    let (url, seen) = server(vec![
+        (200, call("c1", "browser_open", json!({"url": page}))),
+        (200, call("c2", "browser_act", json!({"actions": [{"do": "type", "id": 1, "text": "Lisboa"}, {"do": "click", "id": 2}]}))),
+        (200, reply(json!({"role": "assistant", "content": "Achei: TAP por R$ 2.890."}))),
+    ]);
+    let ev = job(&rt, brain(&url), "Procura voos pra Lisboa");
+    let seen = seen.lock().unwrap();
+    let tool_text = |i: usize| seen[i].body["messages"].as_array().unwrap().iter().rev().find(|m| m["role"] == "tool").map(|m| m["content"].as_str().unwrap_or("").to_string()).unwrap_or_default();
+    // after opening: the page as numbered things to use
+    assert!(tool_text(1).contains("[1] text box \"Para onde?\"") && tool_text(1).contains("[2] button \"Buscar\""), "{}", tool_text(1));
+    // after typing and clicking: the result is on the page
+    assert!(tool_text(2).contains("Resultados para Lisboa: TAP R$ 2.890"), "{}", tool_text(2));
+    // each step showed up, and the app heard where the browser went
+    assert!(ev.iter().any(|e| matches!(e, Event::Step { text } if text == "Clicked “Buscar”")), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, Event::Browse { title, .. } if title == "Voos")), "{ev:?}");
+    assert!(rt.browser_frame("a1").await.is_some_and(|f| f.0.len() > 1000 && f.2 == "Voos"));
+    assert!(matches!(ev.last(), Some(Event::Done { .. })));
 }

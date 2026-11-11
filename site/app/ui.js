@@ -14,6 +14,9 @@ export const mod = isMac ? '⌘' : 'Ctrl';
 const P = {
   plus: '<path d="M10 4.5v11M4.5 10h11"/>',
   search: '<circle cx="9" cy="9" r="5"/><path d="M13 13l3.5 3.5"/>',
+  sidebar: '<rect x="3" y="4" width="14" height="12" rx="2.4"/><path d="M8 4v12"/>',
+  globe: '<circle cx="10" cy="10" r="6.5"/><path d="M3.5 10h13M10 3.5c1.9 1.8 2.9 4 2.9 6.5s-1 4.7-2.9 6.5c-1.9-1.8-2.9-4-2.9-6.5s1-4.7 2.9-6.5z"/>',
+  lock: '<rect x="5" y="9" width="10" height="7.5" rx="1.8"/><path d="M7.2 9V7a2.8 2.8 0 0 1 5.6 0v2"/>',
   check: '<path d="M4.5 10.5l3.5 3.5 7.5-8"/>',
   x: '<path d="M5.5 5.5l9 9M14.5 5.5l-9 9"/>',
   inbox: '<path d="M3.5 11.5l2-6.5h9l2 6.5v4h-13z"/><path d="M3.5 11.5h4l1 2h3l1-2h4"/>',
@@ -78,10 +81,49 @@ export function mountMascots(root, getAgent) {
   $$('canvas[data-agent]', root).forEach((c) => {
     if (c._m) return;
     const a = getAgent(c.dataset.agent); if (!a) return;
-    c._m = mascot(c, a, { follow: c.dataset.follow === '1', emotion: c.dataset.emotion || undefined, frame: c.dataset.frame ? +c.dataset.frame : 1.62 });
+    const opts = { follow: c.dataset.follow === '1', emotion: c.dataset.emotion || undefined, frame: c.dataset.frame ? +c.dataset.frame : 1.62 };
+    if (c.dataset.idle === '1') opts.idle = true; // looks around on its own when nothing's going on
+    c._m = mascot(c, a, opts);
   });
 }
 export const face = (a, size = 28, extra = '') => `<span class="face" style="--s:${size}px"><canvas data-agent="${esc(a.id)}" ${extra} aria-hidden="true"></canvas></span>`;
+
+/* ───────── Markdown in messages: **bold**, *italic* / _italic_, ~~struck~~, `code`, links,
+   - lists, 1. lists, # headings, > quotes and ``` blocks. Text is escaped first, so nothing
+   else in a message can become HTML. ───────── */
+function inline(t) {
+  return t.split(/(`[^`\n]+`)/g).map((part, i) => {
+    if (i % 2) return `<code>${esc(part.slice(1, -1))}</code>`;
+    let h = esc(part);
+    h = h.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, txt, url) => `<a href="${url}" target="_blank" rel="noopener">${txt}</a>`);
+    h = h.replace(/(^|[\s(])(https?:\/\/[^\s<)]+[^\s<).,!?;:'"])/g, (_, pre, url) => `${pre}<a href="${url}" target="_blank" rel="noopener">${url.replace(/^https?:\/\/(www\.)?/, '')}</a>`);
+    h = h.replace(/\*\*(?!\s)([^*\n]+?)\*\*/g, '<strong>$1</strong>').replace(/__(?!\s)([^_\n]+?)__/g, '<strong>$1</strong>');
+    h = h.replace(/(^|[^\w*])\*(?![\s*])([^*\n]+?)\*(?![\w*])/g, '$1<em>$2</em>').replace(/(^|[^\w])_(?![\s_])([^_\n]+?)_(?!\w)/g, '$1<em>$2</em>');
+    return h.replace(/~~(?!\s)([^~\n]+?)~~/g, '<s>$1</s>');
+  }).join('');
+}
+export function md(src) {
+  const lines = String(src ?? '').replace(/\r/g, '').split('\n');
+  let out = '', list = null, para = [], code = null;
+  const flushPara = () => { if (para.length) { out += `<p>${para.map(inline).join('<br>')}</p>`; para = []; } };
+  const flushList = () => { if (list) { out += `<${list.tag}>${list.items.map((x) => `<li>${inline(x)}</li>`).join('')}</${list.tag}>`; list = null; } };
+  for (const raw of lines) {
+    if (code) { if (/^\s*```/.test(raw)) { out += `<pre><code>${esc(code.join('\n'))}</code></pre>`; code = null; } else code.push(raw); continue; }
+    if (/^\s*```/.test(raw)) { flushPara(); flushList(); code = []; continue; }
+    const line = raw.trimEnd();
+    let m;
+    if (!line.trim()) { flushPara(); flushList(); continue; }
+    if ((m = line.match(/^\s*[-*+•]\s+(.*)$/))) { flushPara(); if (list?.tag !== 'ul') { flushList(); list = { tag: 'ul', items: [] }; } list.items.push(m[1]); continue; }
+    if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) { flushPara(); if (list?.tag !== 'ol') { flushList(); list = { tag: 'ol', items: [] }; } list.items.push(m[1]); continue; }
+    if ((m = line.match(/^(#{1,4})\s+(.*)$/))) { flushPara(); flushList(); out += `<h${Math.min(6, m[1].length + 3)}>${inline(m[2])}</h${Math.min(6, m[1].length + 3)}>`; continue; }
+    if ((m = line.match(/^>\s?(.*)$/))) { flushPara(); flushList(); out += `<blockquote>${inline(m[1])}</blockquote>`; continue; }
+    if (/^\s*(---|\*\*\*|___)\s*$/.test(line)) { flushPara(); flushList(); out += '<hr>'; continue; }
+    flushList(); para.push(line);
+  }
+  if (code) out += `<pre><code>${esc(code.join('\n'))}</code></pre>`;
+  flushPara(); flushList();
+  return out;
+}
 
 /* ───────── tooltips: anything with data-tip ───────── */
 export function tooltips() {

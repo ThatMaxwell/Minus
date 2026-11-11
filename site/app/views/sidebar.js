@@ -10,19 +10,19 @@ import { WORDS } from '../moods.js';
 
 export function sidebar(el) {
   el.innerHTML = `
-    <button class="btn btn-primary new-agent" data-tip="New agent|mod N">${icon('plus')}<span>New agent</span></button>
+    <button class="btn btn-primary new-agent" data-tip-pos="right" data-tip="New agent|mod N">${icon('plus')}<span>New agent</span></button>
     <nav class="side-nav" aria-label="Places">
-      <button data-go="standup" data-tip="Hear from every agent: what they did, what’s on today, what they need">${icon('sunrise')}<span>Stand-up</span><i class="su-due" hidden></i></button>
-      <button data-go="room" data-tip="One question, every agent answers with its own AI">${icon('room')}<span>Ask the room</span></button>
-      <button data-go="approvals" data-tip="Things waiting for your OK">${icon('inbox')}<span>Approvals</span><b class="count" hidden></b></button>
-      <button data-go="routines" data-tip="Work that runs on a schedule">${icon('routine')}<span>Routines</span></button>
-      <button data-go="computers" data-tip="Cloud computers and this laptop">${icon('monitor')}<span>Computers</span></button>
+      <button data-go="standup" data-tip-pos="right" data-tip="Hear from every agent: what they did, what’s on today, what they need">${icon('sunrise')}<span>Stand-up</span><i class="su-due" hidden></i></button>
+      <button data-go="room" data-tip-pos="right" data-tip="One question, every agent answers with its own AI">${icon('room')}<span>Ask the room</span></button>
+      <button data-go="approvals" data-tip-pos="right" data-tip="Things waiting for your OK">${icon('inbox')}<span>Approvals</span><b class="count" hidden></b></button>
+      <button data-go="routines" data-tip-pos="right" data-tip="Work that runs on a schedule">${icon('routine')}<span>Routines</span></button>
+      <button data-go="computers" data-tip-pos="right" data-tip="Cloud computers and this laptop">${icon('monitor')}<span>Computers</span></button>
     </nav>
     <div class="side-h"><span>Agents</span><b class="ag-count"></b></div>
     <div class="ag-list" role="list"></div>
     <button class="saved" data-tip="About how long your agents’ work this week would have taken you by hand (an estimate from their steps)" data-tip-pos="right"><span class="sv-ic">${icon('timer')}</span><span class="sv-t"><b class="sv-n"></b><small>saved this week</small></span><span class="sv-bars"></span></button>
     <div class="side-foot">
-      <button data-go="settings" data-tip="Settings|mod ,">${icon('gear')}<span>Settings</span></button>
+      <button data-go="settings" data-tip-pos="right" data-tip="Settings|mod ,">${icon('gear')}<span>Settings</span></button>
       <div class="me"></div>
     </div>`;
 

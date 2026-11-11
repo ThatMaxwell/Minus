@@ -11,7 +11,14 @@ reqwest = { version = "0.13.5", default-features = false, features = ["json", "s
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "process"] }
+# the web: reading result pages and web pages
+scraper = "0.24"
+percent-encoding = "2"
+
+# the agents' own browser (desktop only: phones don't run one)
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tokio-tungstenite = "0.28"
 
 [target.'cfg(target_os = "android")'.dependencies]
 # Android: trust the standard root certificates (see http_client)

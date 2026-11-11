@@ -42,8 +42,13 @@ export async function setKey(slot, key) { await tauri.core.invoke('keys_set', { 
 export async function removeKey(slot) { await tauri.core.invoke('keys_remove', { slot }); await refreshKeys(); }
 
 // What agents can do on this device: use the computer (Windows, for now) or only think and write.
-let caps = { computer: true, platform: '' };
+let caps = { computer: true, browser: false, platform: '' };
 export const canUseComputer = () => caps.computer;
+/** Agents here have their own web browser (a Chromium-family browser is installed). */
+export const canBrowse = () => !!caps.browser;
+export const browserFrame = (aid) => tauri?.core.invoke('browser_frame', { agent: aid });
+const browsing = new Set(); // agents with a browser tab open
+export const isBrowsing = (aid) => browsing.has(aid);
 
 /** Tries a key with its provider before saving it. Resolves to the models the key can use. */
 export function check(pid, key, model, baseUrl, name) {
@@ -101,6 +106,8 @@ export function estimate(agents, question, rounds = 1) {
 export function rewind(aid, jobs) { tauri?.core.invoke('agent_rewind', { agent: aid, jobs }); }
 
 const begun = new Set(); // agents whose job has started (the runtime said so)
+const voiced = new Map(); // agent -> how its next message sounds read aloud
+const takeVoice = (aid) => { const v = voiced.get(aid); voiced.delete(aid); return v || undefined; };
 export async function run(aid, text) {
   const a = agent(aid);
   const spec = specOf(a), brain = brainOf(a);
@@ -226,7 +233,7 @@ export function listen() {
         emit('approvals');
         break;
       case 'message':
-        post(aid, { from: 'agent', text: e.text });
+        post(aid, { from: 'agent', text: e.text, voice: takeVoice(aid) });
         break;
       case 'remember':
         nb.add(aid, e.text, 'agent');
@@ -236,6 +243,13 @@ export function listen() {
         break;
       case 'point':
         emit('point', { agent: aid, ...e });
+        break;
+      case 'voice':
+        voiced.set(aid, e.text);
+        break;
+      case 'browse':
+        browsing.add(aid);
+        emit('browse', { agent: aid, url: e.url, title: e.title });
         break;
       case 'face':
         // its own expression, chosen by the agent (the code it wrote never shows)
@@ -252,8 +266,8 @@ export function listen() {
         quiet();
         card({ live: false, title: `Done on ${computer(a.computer)?.name || 'this computer'}` });
         live.delete(aid);
-        if (cur?.draft) patchMessage(aid, cur.draft, { text: e.text?.trim() || '…', live: false });
-        else if (e.text?.trim()) post(aid, { from: 'agent', text: e.text.trim() });
+        if (cur?.draft) patchMessage(aid, cur.draft, { text: e.text?.trim() || '…', live: false, voice: takeVoice(aid) });
+        else if (e.text?.trim()) post(aid, { from: 'agent', text: e.text.trim(), voice: takeVoice(aid) });
         updateAgent(aid, { status: 'done', statusText: 'Finished' });
         emit('work', { agent: aid, on: false });
         react(aid, 'done');

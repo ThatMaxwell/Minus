@@ -35,9 +35,9 @@ pub struct Compat {
     no_eager: bool,
 }
 
-fn body(brain: &Brain, system: &str, messages: &[Value], c: &Compat, computer: bool) -> (Value, Vec<&'static str>) {
+fn body(brain: &Brain, system: &str, messages: &[Value], c: &Compat, computer: bool, browser: bool) -> (Value, Vec<&'static str>) {
     let mut betas = Vec::new();
-    let mut tools: Vec<Value> = crate::tools::custom_tools(computer);
+    let mut tools: Vec<Value> = crate::tools::custom_tools(computer, browser);
     if !c.no_eager {
         for t in tools.iter_mut() {
             t["eager_input_streaming"] = json!(true);
@@ -125,11 +125,11 @@ fn friendly(status: u16, msg: &str) -> String {
     }
 }
 
-pub async fn turn(http: &reqwest::Client, brain: &Brain, system: &str, messages: &[Value], compat: &mut Compat, computer: bool, emit: &Arc<dyn Fn(Event) + Send + Sync>, stop: &Arc<AtomicBool>) -> Result<Turn, AgentError> {
+pub async fn turn(http: &reqwest::Client, brain: &Brain, system: &str, messages: &[Value], compat: &mut Compat, computer: bool, browser: bool, emit: &Arc<dyn Fn(Event) + Send + Sync>, stop: &Arc<AtomicBool>) -> Result<Turn, AgentError> {
     let mut attempt = 0;
     loop {
         attempt += 1;
-        let (b, betas) = body(brain, system, messages, compat, computer);
+        let (b, betas) = body(brain, system, messages, compat, computer, browser);
         let mut req = http.post(URL).header("x-api-key", &brain.key).header("anthropic-version", VERSION).header("content-type", "application/json").json(&b);
         if !betas.is_empty() {
             req = req.header("anthropic-beta", betas.join(","));
@@ -318,7 +318,7 @@ mod tests {
     }
     #[test]
     fn request_shape() {
-        let (b, betas) = body(&brain(), "sys", &[json!({"role": "user", "content": "hi"})], &Compat::default(), true);
+        let (b, betas) = body(&brain(), "sys", &[json!({"role": "user", "content": "hi"})], &Compat::default(), true, true);
         assert_eq!(b["model"], "claude-opus-5-5");
         assert_eq!(b["thinking"]["type"], "adaptive");
         assert_eq!(b["output_config"]["effort"], "medium");
