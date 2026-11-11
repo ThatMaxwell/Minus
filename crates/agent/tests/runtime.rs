@@ -47,7 +47,8 @@ fn server(script: Vec<(u16, String)>) -> (String, Arc<Mutex<Vec<Seen>>>) {
             r.read_exact(&mut body).unwrap();
             log.lock().unwrap().push(Seen { path, auth, body: serde_json::from_slice(&body).unwrap_or(Value::Null) });
             let (status, out) = script.next().unwrap_or((500, "{}".into()));
-            let _ = write!(s, "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{out}", out.len());
+            let kind = if out.starts_with("data:") { "text/event-stream" } else { "application/json" };
+            let _ = write!(s, "HTTP/1.1 {status} X\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{out}", out.len());
         }
     });
     (url, seen)
@@ -158,4 +159,47 @@ async fn real_providers_turn_down_fake_keys() {
         assert!(checked.is_err());
         assert!(matches!(ev.last(), Some(Event::Error { .. })));
     }
+}
+
+/// A streamed reply, the way Gemini sends one: the text arrives in pieces (and shows up live),
+/// the tool call comes in two pieces with a thought signature, and that signature goes back
+/// with the next request exactly as it came.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_streamed_reply_with_a_signed_tool_call() {
+    let sse = |chunks: &[Value]| chunks.iter().map(|c| format!("data: {c}\n\n")).collect::<String>() + "data: [DONE]\n\n";
+    let first = sse(&[
+        json!({"choices": [{"delta": {"role": "assistant", "content": "Anotando "}}]}),
+        json!({"choices": [{"delta": {"content": "isso <[[happy]] agora."}}]}),
+        json!({"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "fc_1", "type": "function", "function": {"name": "remember", "arguments": "{\"note\":\"Karla "}, "extra_content": {"google": {"thought_signature": "SIG123"}}}]}}]}),
+        json!({"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "likes tea\"}"}}]}, "finish_reason": "tool_calls"}]}),
+    ]);
+    let second = sse(&[
+        json!({"choices": [{"delta": {"content": "Pronto! "}}]}),
+        json!({"choices": [{"delta": {"content": "Anotei. <[[proud]]"}, "finish_reason": "stop"}]}),
+    ]);
+    let (url, seen) = server(vec![
+        (400, r#"[{"error":{"code":400,"message":"Invalid JSON payload received. Unknown name \"reasoning_effort\": Cannot find field.","status":"INVALID_ARGUMENT"}}]"#.into()),
+        (200, first),
+        (200, second),
+    ]);
+    let rt = Runtime::new(std::env::temp_dir().join(format!("minus-test-s-{}", std::process::id())));
+    let b = Brain { provider: "gemini".into(), model: "gemini-3-pro".into(), key: "AQ.test".into(), effort: Some("low".into()), base_url: Some(url) };
+    let ev = job(&rt, b, "Lembra que eu gosto de chá");
+
+    // the provider turned down reasoning_effort: sent again without it, and it worked
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen[0].body["reasoning_effort"], "low");
+    assert_eq!(seen[0].body["stream"], true);
+    assert!(seen[1].body.get("reasoning_effort").is_none());
+    // the reply showed up live, without the face code; the face changed instead
+    assert!(ev.iter().any(|e| matches!(e, Event::Draft { text } if text.starts_with("Anotando"))), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, Event::Draft { text } | Event::Done { text } if text.contains("[[") || text.contains(']'))), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, Event::Face { name } if name == "proud")), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, Event::Remember { text } if text == "Karla likes tea")), "{ev:?}");
+    match ev.last() { Some(Event::Done { text }) => assert_eq!(text, "Pronto! Anotei."), other => panic!("ended with {other:?}") }
+    // the thought signature went back with the call it belongs to
+    let msgs = seen[2].body["messages"].as_array().unwrap();
+    let call = msgs.iter().find(|m| m["role"] == "assistant").unwrap();
+    assert_eq!(call["tool_calls"][0]["extra_content"]["google"]["thought_signature"], "SIG123");
+    assert_eq!(call["tool_calls"][0]["function"]["arguments"], "{\"note\":\"Karla likes tea\"}");
 }

@@ -162,6 +162,7 @@ async fn read_stream(resp: reqwest::Response, emit: &Arc<dyn Fn(Event) + Send + 
     let mut stop_reason = String::new();
     let mut refusal = String::new();
     let mut usage = (0u64, 0u64, 0u64);
+    let mut shown = std::time::Instant::now() - std::time::Duration::from_secs(1);
     while let Some(chunk) = stream.next().await {
         if stop.load(Ordering::SeqCst) {
             return Err(AgentError::Stopped);
@@ -195,7 +196,15 @@ async fn read_stream(resp: reqwest::Response, emit: &Arc<dyn Fn(Event) + Send + 
                     let d = &ev["delta"];
                     let Some(b) = blocks.get_mut(i) else { continue };
                     match d["type"].as_str().unwrap_or("") {
-                        "text_delta" => append(b, "text", d["text"].as_str().unwrap_or("")),
+                        "text_delta" => {
+                            append(b, "text", d["text"].as_str().unwrap_or(""));
+                            // the reply shows up live as it's written
+                            if shown.elapsed().as_millis() > 180 {
+                                let t = b["text"].as_str().unwrap_or("").to_string();
+                                emit(Event::Draft { text: t });
+                                shown = std::time::Instant::now();
+                            }
+                        }
                         "thinking_delta" => append(b, "thinking", d["thinking"].as_str().unwrap_or("")),
                         "signature_delta" => b["signature"] = d["signature"].clone(),
                         "input_json_delta" => partial.entry(i).or_default().push_str(d["partial_json"].as_str().unwrap_or("")),

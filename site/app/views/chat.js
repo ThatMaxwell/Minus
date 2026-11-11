@@ -103,6 +103,13 @@ export function chat(main) {
   off.push(on('message:update', ({ agent: aid, msg }) => {
     if (aid !== a.id) return;
     const node = $(`[data-mid="${CSS.escape(msg.mid || msg.id)}"]`, thread); if (!node) return;
+    // a reply being written: just the words change (no re-render, five times a second)
+    const p = msg.live && msg.from === 'agent' && !msg.kind ? node.querySelector('p') : null;
+    if (p?.firstChild?.nodeType === 3) {
+      p.firstChild.nodeValue = msg.text; node.classList.add('streaming');
+      if (thread.scrollHeight - thread.scrollTop - thread.clientHeight < 160) thread.scrollTop = thread.scrollHeight;
+      return;
+    }
     const tmp = document.createElement('div'); tmp.innerHTML = msgHTML(a, msg, null, node.classList.contains('cont'));
     const fresh = tmp.firstElementChild; node.replaceWith(fresh); mountMascots(fresh, agent);
   }));
@@ -278,9 +285,16 @@ export function chat(main) {
     let shot = null, timer = 0, gone = false;
     const tick = async () => {
       if (gone || !main.contains(box)) return;
+      if (!rt.canUseComputer()) {
+        // nothing to watch here: agents on this device think and write instead
+        img.hidden = true; msg.hidden = false;
+        msg.textContent = /Android/i.test(navigator.userAgent) ? 'Agents on your phone think and write; they don’t use a screen.' : 'Minus can see and use the screen on Windows for now. Mac and Linux are next. Agents here think and write in the meantime.';
+        return;
+      }
       if (state.panel && document.visibilityState === 'visible') {
         try {
           shot = await window.__TAURI__.core.invoke('hands_screen', { maxEdge: 1100 });
+          if (!shot?.png) throw new Error('no picture of the screen came back');
           img.src = 'data:image/png;base64,' + shot.png; img.hidden = false; msg.hidden = true;
         } catch (err) {
           img.hidden = true; msg.hidden = false;

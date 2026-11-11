@@ -185,6 +185,16 @@ export function listen() {
         emit('work', { agent: aid, on: true });
         break;
       }
+      case 'draft': {
+        // the reply as it's being written: on a work card it's the live note; in a chat it's a
+        // bubble that grows, and becomes the answer when it's done
+        if (!cur) break;
+        if (cur.mid) { card({ note: e.text }); break; }
+        if (!cur.draft) { quiet(); cur.draft = post(aid, { from: 'agent', text: e.text, live: true }).mid; }
+        else patchMessage(aid, cur.draft, { text: e.text });
+        updateAgent(aid, { statusText: 'Writing…' });
+        break;
+      }
       case 'note':
         updateAgent(aid, { statusText: brief(e.text) });
         card({ note: e.text });
@@ -242,13 +252,15 @@ export function listen() {
         quiet();
         card({ live: false, title: `Done on ${computer(a.computer)?.name || 'this computer'}` });
         live.delete(aid);
-        if (e.text?.trim()) post(aid, { from: 'agent', text: e.text.trim() });
+        if (cur?.draft) patchMessage(aid, cur.draft, { text: e.text?.trim() || '…', live: false });
+        else if (e.text?.trim()) post(aid, { from: 'agent', text: e.text.trim() });
         updateAgent(aid, { status: 'done', statusText: 'Finished' });
         emit('work', { agent: aid, on: false });
         react(aid, 'done');
         break;
       case 'stopped':
         quiet();
+        if (cur?.draft) patchMessage(aid, cur.draft, { live: false });
         card({ live: false, title: 'Stopped' });
         live.delete(aid); asking.delete(aid);
         updateAgent(aid, { status: 'idle', statusText: 'Stopped' });
@@ -257,6 +269,7 @@ export function listen() {
         break;
       case 'error':
         quiet();
+        if (cur?.draft) patchMessage(aid, cur.draft, { live: false });
         card({ live: false, title: 'Stopped by a problem' });
         live.delete(aid); asking.delete(aid);
         post(aid, { from: 'agent', kind: 'problem', text: e.message });

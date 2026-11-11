@@ -792,3 +792,8 @@ html.calm *, html.calm *::before { animation-play-state: paused !important; }
 .need-ai .btn svg { width: 15px; height: 15px; margin-right: 4px; }
 .ask-done { display: flex; align-items: center; gap: 8px; margin: 0; padding: 14px 16px 16px; color: var(--mint); font-size: 13px; }
 .ask-done svg { width: 15px; height: 15px; }
+
+/* a reply being written, live */
+.m.streaming .say { display: none; }
+.m.streaming p::after { content: ""; display: inline-block; width: .5em; height: 1em; margin-left: 2px; vertical-align: -2px; border-radius: 2px; background: currentColor; opacity: .5; animation: caret 1s steps(2) infinite; }
+@keyframes caret { 50% { opacity: 0; } }
