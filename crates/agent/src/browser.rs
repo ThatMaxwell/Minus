@@ -49,7 +49,7 @@ pub fn find() -> Option<PathBuf> {
 
 /// The running browser and the agents' tabs.
 pub struct Browser {
-    _child: tokio::process::Child,
+    _child: Option<tokio::process::Child>,
     port: u16,
     http: reqwest::Client,
     tabs: tokio::sync::Mutex<HashMap<String, Arc<Tab>>>,
@@ -90,7 +90,25 @@ impl Browser {
         }
         let port = port.ok_or("the browser didn't start in time")?;
         let http = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(10)).build().map_err(|e| e.to_string())?;
-        Ok(Self { _child: child, port, http, tabs: Default::default() })
+        Ok(Self { _child: Some(child), port, http, tabs: Default::default() })
+    }
+
+    /// A browser that's already running, reached at this port (a cloud computer's, through
+    /// an SSH tunnel).
+    pub async fn attach(port: u16) -> Result<Self, String> {
+        let http = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(15)).build().map_err(|e| e.to_string())?;
+        for _ in 0..40 {
+            if http.get(format!("http://127.0.0.1:{port}/json/version")).send().await.is_ok_and(|r| r.status().is_success()) {
+                return Ok(Self { _child: None, port, http, tabs: Default::default() });
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        Err("couldn't reach the browser".into())
+    }
+
+    /// Still there to talk to?
+    pub async fn alive(&self) -> bool {
+        self.http.get(format!("http://127.0.0.1:{}/json/version", self.port)).send().await.is_ok_and(|r| r.status().is_success())
     }
 
     /// This agent's tab (opened the first time it's needed, or again if it was closed).
@@ -101,6 +119,11 @@ impl Browser {
         }
         let v: Value = self.http.put(format!("http://127.0.0.1:{}/json/new?about:blank", self.port)).send().await.map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
         let ws = v["webSocketDebuggerUrl"].as_str().ok_or("the browser didn't open a tab")?;
+        // the browser names its own port; ours may be a tunnel to it
+        let ws = &match ws.strip_prefix("ws://").and_then(|r| r.split_once('/')) {
+            Some((_, path)) => format!("ws://127.0.0.1:{}/{path}", self.port),
+            None => ws.to_string(),
+        };
         let t = Tab::connect(ws).await?;
         tabs.insert(agent.to_string(), t.clone());
         Ok(t)

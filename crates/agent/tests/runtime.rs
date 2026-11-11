@@ -356,3 +356,71 @@ async fn a_job_on_a_chatgpt_plan() {
     assert!(input.iter().any(|i| i["type"] == "reasoning" && i["encrypted_content"] == "sealed"));
     assert!(input.iter().any(|i| i["type"] == "function_call_output" && i["call_id"] == "c1"));
 }
+
+/// An agent on a cloud computer: commands over SSH, and the computer's own browser through a
+/// tunnel. Needs a machine to stand in for the cloud: MINUS_SSH="host:port:user:authorized_keys path".
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_on_a_cloud_computer() {
+    let Ok(cfg) = std::env::var("MINUS_SSH") else { eprintln!("no machine to stand in for the cloud: skipped"); return };
+    let p: Vec<&str> = cfg.split(':').collect();
+    let (private, public) = agent::cloud::ssh::new_key().unwrap();
+    std::fs::write(p[3], format!("{public}\n")).unwrap();
+    let remote = agent::Remote { name: "Cloud computer 1".into(), host: p[0].into(), port: p[1].parse().unwrap(), user: p[2].into(), key: private, host_key: None };
+    let page = site(r#"<!doctype html><meta charset="utf-8"><title>Lojinha</title><h1>Preço: R$ 42</h1><a href="/x">Comprar</a>"#);
+    let call = |id: &str, name: &str, args: Value| reply(json!({"role": "assistant", "content": null, "tool_calls": [{"id": id, "type": "function", "function": {"name": name, "arguments": args.to_string()}}]}));
+    let (url, seen) = server(vec![
+        (200, call("c1", "run", json!({"command": "echo \"$(whoami) on $(uname -s)\" && echo oi > ~/nota.txt && cat ~/nota.txt"}))),
+        (200, call("c2", "browser_open", json!({"url": page}))),
+        (200, reply(json!({"role": "assistant", "content": "Feito: o preço é R$ 42."}))),
+    ]);
+    let rt = Runtime::new(std::env::temp_dir().join(format!("minus-test-c-{}", std::process::id())));
+    rt.set_remote("a1", Some(remote));
+    let ev = job(&rt, brain(&url), "Vê o preço na lojinha");
+    let seen = seen.lock().unwrap();
+    if seen.len() < 3 { panic!("stopped early: {ev:?}\n{:?}", seen.iter().map(|r| r.body["messages"].as_array().unwrap().last().cloned()).collect::<Vec<_>>()); }
+    let tool_text = |i: usize| seen[i].body["messages"].as_array().unwrap().iter().rev().find(|m| m["role"] == "tool").map(|m| m["content"].as_str().unwrap_or("").to_string()).unwrap_or_default();
+    // the agent was told where it is, and got a terminal instead of the person's apps
+    let tools: Vec<&str> = seen[0].body["tools"].as_array().unwrap().iter().map(|t| t["function"]["name"].as_str().unwrap()).collect();
+    assert!(tools.contains(&"run") && tools.contains(&"browser_open") && !tools.contains(&"act"), "{tools:?}");
+    assert!(seen[0].body["messages"][0]["content"].as_str().unwrap().contains("your own cloud computer, “Cloud computer 1”"));
+    // the command ran there, as Minus's user
+    assert!(tool_text(1).contains("exit code: 0") && tool_text(1).contains(&format!("{} on Linux", p[2])) && tool_text(1).contains("oi"), "{}", tool_text(1));
+    // and its browser read the page
+    assert!(tool_text(2).contains("Preço: R$ 42") && tool_text(2).contains("Comprar"), "{}", tool_text(2));
+    assert!(ev.iter().any(|e| matches!(e, Event::Browse { title, .. } if title == "Lojinha")), "{ev:?}");
+    assert!(rt.browser_frame("a1").await.is_some_and(|f| f.0.len() > 1000), "no live view of the cloud computer's browser");
+    assert!(matches!(ev.last(), Some(Event::Done { .. })), "{ev:?}");
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tokio::test(flavor = "multi_thread")]
+async fn making_a_computer_on_hetzner() {
+    use agent::cloud::{create, refresh, Endpoints, Want};
+    let (url, seen) = server(vec![
+        (200, json!({"ssh_keys": []}).to_string()),
+        (201, json!({"ssh_key": {"id": 77}}).to_string()),
+        (200, json!({"server_types": [
+            {"name": "cx52", "architecture": "x86", "memory": 32.0, "prices": [{"location": "fsn1", "price_monthly": {"gross": "40.0"}}]},
+            {"name": "cax11", "architecture": "arm", "memory": 4.0, "prices": [{"location": "fsn1", "price_monthly": {"gross": "4.0"}}]},
+            {"name": "cx22", "architecture": "x86", "memory": 4.0, "prices": [{"location": "fsn1", "price_monthly": {"gross": "4.5"}}]},
+            {"name": "cx11", "architecture": "x86", "memory": 2.0, "prices": [{"location": "fsn1", "price_monthly": {"gross": "3.0"}}]}
+        ]}).to_string()),
+        (201, json!({"server": {"id": 4242, "public_net": {"ipv4": {"ip": "203.0.113.7"}}}}).to_string()),
+        (200, json!({"server": {"id": 4242, "status": "running", "public_net": {"ipv4": {"ip": "203.0.113.7"}}}}).to_string()),
+    ]);
+    let ep = Endpoints { base: Some(url.trim_end_matches("/v1").to_string()) };
+    let creds = json!({"token": "hz-123"});
+    let (_, public) = agent::cloud::ssh::new_key().unwrap();
+    let m = create(&reqwest::Client::new(), &ep, "hetzner", &creds, &Want { name: "Cloud computer 1".into(), region: "fsn1".into(), size: "small".into() }, &public).await.unwrap();
+    assert_eq!((m.id.as_str(), m.size.as_str(), m.ip.as_str(), m.status.as_str()), ("4242", "cx22", "203.0.113.7", "starting"));
+    let m = refresh(&reqwest::Client::new(), &ep, &creds, &m).await.unwrap();
+    assert_eq!(m.status, "running");
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen[0].auth, "Bearer hz-123");
+    assert_eq!(seen[1].body["public_key"], public.as_str());
+    let made = &seen[3].body;
+    assert_eq!((made["server_type"].as_str(), made["image"].as_str(), made["location"].as_str(), made["name"].as_str()), (Some("cx22"), Some("ubuntu-24.04"), Some("fsn1"), Some("cloud-computer-1")));
+    assert_eq!(made["ssh_keys"], json!([77]));
+    assert!(made["user_data"].as_str().unwrap().contains(&public) && made["user_data"].as_str().unwrap().starts_with("#cloud-config"));
+}

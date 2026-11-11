@@ -122,11 +122,19 @@ async fn brain_of(app: &AppHandle, brain: BrainIn) -> Result<agent::Brain, Strin
 }
 
 #[tauri::command]
-async fn agent_run(app: AppHandle, rt: tauri::State<'_, Agents>, spec: agent::AgentSpec, brain: BrainIn, text: String) -> Result<(), String> {
+async fn agent_run(app: AppHandle, rt: tauri::State<'_, Agents>, spec: agent::AgentSpec, brain: BrainIn, text: String, cloud: Option<String>) -> Result<(), String> {
     if rt.0.is_running(&spec.id) {
         return Err(format!("{} is already working. Stop it first, or wait.", spec.name));
     }
     let brain = brain_of(&app, brain).await?;
+    // a cloud computer: the agent works there, over SSH
+    #[cfg(desktop)]
+    rt.0.set_remote(&spec.id, match cloud.filter(|c| !c.is_empty()) {
+        Some(id) => Some(remote_for(&app, &id)?),
+        None => None,
+    });
+    #[cfg(not(desktop))]
+    let _ = cloud;
     let id = spec.id.clone();
     let app2 = app.clone();
     let emit: Arc<dyn Fn(agent::Event) + Send + Sync> = Arc::new(move |e| {
@@ -170,6 +178,126 @@ async fn ai_check(app: AppHandle, rt: tauri::State<'_, Agents>, provider: String
     }
     let brain = agent::Brain { provider, model, key, effort: None, base_url: base_url.filter(|u| !u.trim().is_empty()) };
     rt.0.check(&brain, &name).await
+}
+
+/* ───────── cloud computers: real machines in your own cloud account ───────── */
+#[cfg(desktop)]
+mod clouds {
+    use super::*;
+    use agent::cloud::{self, Machine, Region, Want};
+
+    const SSH_KEY: &str = "cloud-ssh-key";
+    pub fn slot(provider: &str) -> String {
+        format!("cloud:{provider}")
+    }
+    fn store(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+        Ok(data_dir(app)?.join("cloud-computers.json"))
+    }
+    pub fn machines(app: &AppHandle) -> Vec<Machine> {
+        store(app).ok().and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    }
+    pub fn save(app: &AppHandle, ms: &[Machine]) -> Result<(), String> {
+        std::fs::write(store(app)?, serde_json::to_vec_pretty(ms).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+    }
+    /// "provider:id", the name the app uses for a machine
+    pub fn key(m: &Machine) -> String {
+        format!("{}:{}", m.provider, m.id)
+    }
+    pub fn find(app: &AppHandle, id: &str) -> Result<Machine, String> {
+        machines(app).into_iter().find(|m| key(m) == id).ok_or_else(|| "That cloud computer isn't in Minus anymore.".into())
+    }
+    pub fn creds(app: &AppHandle, provider: &str) -> Result<serde_json::Value, String> {
+        let j = keys::get(&data_dir(app)?, &slot(provider)).ok_or("Connect that cloud first (Computers → Your clouds).")?;
+        serde_json::from_str(&j).map_err(|e| e.to_string())
+    }
+    /// Minus's own SSH key for cloud computers, made the first time.
+    pub fn ssh_key(app: &AppHandle) -> Result<(String, String), String> {
+        let dir = data_dir(app)?;
+        if let Some(k) = keys::get(&dir, SSH_KEY) {
+            return Ok((k.clone(), cloud::ssh::public_of(&k)?));
+        }
+        let (private, public) = cloud::ssh::new_key()?;
+        keys::set(&dir, SSH_KEY, &private)?;
+        Ok((private, public))
+    }
+
+    #[tauri::command]
+    pub async fn cloud_connect(app: AppHandle, provider: String, creds: serde_json::Value) -> Result<Vec<Region>, String> {
+        let regions = cloud::check(&agent::http_client(), &Default::default(), &provider, &creds).await?;
+        keys::set(&data_dir(&app)?, &slot(&provider), &creds.to_string())?;
+        Ok(regions)
+    }
+    #[tauri::command]
+    pub fn cloud_disconnect(app: AppHandle, provider: String) -> Result<(), String> {
+        keys::remove(&data_dir(&app)?, &slot(&provider));
+        Ok(())
+    }
+    #[tauri::command]
+    pub async fn cloud_regions(app: AppHandle, provider: String) -> Result<Vec<Region>, String> {
+        cloud::check(&agent::http_client(), &Default::default(), &provider, &creds(&app, &provider)?).await
+    }
+    #[tauri::command]
+    pub fn cloud_list(app: AppHandle) -> Vec<Machine> {
+        machines(&app)
+    }
+    #[tauri::command]
+    pub async fn cloud_create(app: AppHandle, provider: String, want: Want) -> Result<Machine, String> {
+        let c = creds(&app, &provider)?;
+        let (_, public) = ssh_key(&app)?;
+        let m = cloud::create(&agent::http_client(), &Default::default(), &provider, &c, &want, &public).await?;
+        let mut ms = machines(&app);
+        ms.push(m.clone());
+        save(&app, &ms)?;
+        Ok(m)
+    }
+    /// Its state now. Once it's up, Minus logs in once to see that its setup finished, and pins
+    /// its SSH identity from then on.
+    #[tauri::command]
+    pub async fn cloud_refresh(app: AppHandle, id: String) -> Result<Machine, String> {
+        let m = find(&app, &id)?;
+        let mut n = cloud::refresh(&agent::http_client(), &Default::default(), &creds(&app, &m.provider)?, &m).await?;
+        if n.status == "running" && !n.ip.is_empty() && !n.ready {
+            let (private, _) = ssh_key(&app)?;
+            if let Ok(ssh) = cloud::ssh::Ssh::connect(&n.ip, 22, cloud::USER, &private, n.host_key.as_deref()).await {
+                n.host_key = Some(ssh.host_key.clone());
+                n.ready = ssh.run("test -f /var/lib/minus-ready", 15, 200).await.is_ok_and(|o| o.code == Some(0));
+            }
+        }
+        let mut ms = machines(&app);
+        if n.status == "gone" {
+            ms.retain(|x| key(x) != id);
+        } else if let Some(x) = ms.iter_mut().find(|x| key(x) == id) {
+            *x = n.clone();
+        }
+        save(&app, &ms)?;
+        Ok(n)
+    }
+    #[tauri::command]
+    pub async fn cloud_power(app: AppHandle, id: String, on: bool) -> Result<(), String> {
+        let m = find(&app, &id)?;
+        cloud::power(&agent::http_client(), &Default::default(), &creds(&app, &m.provider)?, &m, on).await
+    }
+    #[tauri::command]
+    pub async fn cloud_delete(app: AppHandle, id: String) -> Result<(), String> {
+        let m = find(&app, &id)?;
+        cloud::delete(&agent::http_client(), &Default::default(), &creds(&app, &m.provider)?, &m).await?;
+        let mut ms = machines(&app);
+        ms.retain(|x| key(x) != id);
+        save(&app, &ms)
+    }
+}
+#[cfg(desktop)]
+use clouds::*;
+
+/// How an agent reaches the cloud computer it works on.
+#[cfg(desktop)]
+fn remote_for(app: &AppHandle, id: &str) -> Result<agent::Remote, String> {
+    let m = clouds::find(app, id)?;
+    if m.status != "running" || m.ip.is_empty() {
+        return Err(format!("{} is {}. Start it in Computers first.", m.name, if m.status == "stopped" { "stopped" } else { "still starting" }));
+    }
+    let (key, _) = clouds::ssh_key(app)?;
+    Ok(agent::Remote { name: m.name, host: m.ip, port: 22, user: agent::cloud::USER.into(), key, host_key: m.host_key })
 }
 
 /* ───────── Sign in with ChatGPT: agents use your ChatGPT plan instead of an API key ───────── */
@@ -636,7 +764,7 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
 /// The commands the app's pages can call.
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout, orpheus_install, orpheus_codes, orpheus_remove]
+    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout, cloud_connect, cloud_disconnect, cloud_regions, cloud_list, cloud_create, cloud_refresh, cloud_power, cloud_delete, orpheus_install, orpheus_codes, orpheus_remove]
 }
 #[cfg(mobile)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {

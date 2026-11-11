@@ -16,8 +16,8 @@ fn base(b: &Brain) -> String {
     b.base_url.as_ref().filter(|u| !u.trim().is_empty()).map(|u| u.trim_end_matches('/').to_string()).unwrap_or_else(|| "https://api.openai.com/v1".into())
 }
 
-fn tools(computer: bool, browser: bool) -> Value {
-    let fns: Vec<Value> = crate::tools::custom_tools(computer, browser)
+fn tools(computer: bool, browser: bool, shell: bool) -> Value {
+    let fns: Vec<Value> = crate::tools::custom_tools(computer, browser, shell)
         .into_iter()
         .map(|t| json!({"type": "function", "name": t["name"], "description": t["description"], "parameters": t["input_schema"]}))
         .collect();
@@ -56,13 +56,13 @@ fn input(history: &[Value], keep_reasoning: bool) -> Vec<Value> {
     out
 }
 
-pub async fn turn(http: &reqwest::Client, brain: &Brain, system: &str, history: &[Value], computer: bool, browser: bool, compat: &mut Compat, emit: &Emit, stop: &Arc<AtomicBool>) -> Result<Turn, AgentError> {
+pub async fn turn(http: &reqwest::Client, brain: &Brain, system: &str, history: &[Value], computer: bool, browser: bool, shell: bool, compat: &mut Compat, emit: &Emit, stop: &Arc<AtomicBool>) -> Result<Turn, AgentError> {
     let mut attempt = 0;
     loop {
         attempt += 1;
         let mut body = json!({
             "model": brain.model, "instructions": system, "input": input(history, !compat.no_reasoning_items),
-            "tools": tools(computer, browser), "store": false, "stream": true,
+            "tools": tools(computer, browser, shell), "store": false, "stream": true,
         });
         if !compat.no_reasoning_items {
             // with nothing kept on OpenAI's side, its thinking comes back sealed so it can continue it

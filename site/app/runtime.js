@@ -135,7 +135,9 @@ export async function run(aid, text) {
   try {
     // the notebook goes with the job (not into the standing instructions, which stay cached)
     const notes = nb.asText(a);
-    await tauri.core.invoke('agent_run', { spec, brain, text: notes ? `${text}\n\n${notes}` : text });
+    // on a real cloud computer, the app connects the agent to it
+    const cloud = computer(a.computer)?.real ? a.computer : null;
+    await tauri.core.invoke('agent_run', { spec, brain, text: notes ? `${text}\n\n${notes}` : text, cloud });
     // never silence: if the job doesn't start, say so
     setTimeout(() => {
       if (begun.has(aid) || live.has(aid)) return;
@@ -187,6 +189,8 @@ export function listen() {
   refreshKeys();
   applyPace();
   tauri.core.invoke('agent_caps').then((c) => { if (c) { caps = c; emit('caps', c); } }).catch(() => {});
+  // your real cloud computers
+  if (!/Android/i.test(navigator.userAgent)) import('./cloud.js').then((c) => c.sync()).catch(() => {});
   tauri.event.listen('agent-event', ({ payload }) => {
     const aid = payload.agent, e = payload.event, a = agent(aid); if (!a) return;
     const cur = live.get(aid);

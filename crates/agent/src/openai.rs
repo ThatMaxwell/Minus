@@ -26,8 +26,8 @@ pub fn base_url(b: &Brain) -> String {
     .to_string()
 }
 
-fn tools(computer: bool, browser: bool) -> Vec<Value> {
-    crate::tools::custom_tools(computer, browser)
+fn tools(computer: bool, browser: bool, shell: bool) -> Vec<Value> {
+    crate::tools::custom_tools(computer, browser, shell)
         .into_iter()
         .map(|t| json!({"type": "function", "function": {"name": t["name"], "description": t["description"], "parameters": t["input_schema"]}}))
         .collect()
@@ -41,7 +41,7 @@ pub struct Compat {
     no_usage: bool,
 }
 
-pub async fn turn(http: &reqwest::Client, brain: &Brain, system: &str, history: &[Value], computer: bool, browser: bool, compat: &mut Compat, emit: &Emit, stop: &Arc<AtomicBool>) -> Result<Turn, AgentError> {
+pub async fn turn(http: &reqwest::Client, brain: &Brain, system: &str, history: &[Value], computer: bool, browser: bool, shell: bool, compat: &mut Compat, emit: &Emit, stop: &Arc<AtomicBool>) -> Result<Turn, AgentError> {
     let mut messages = vec![json!({"role": "system", "content": system})];
     messages.extend(history.iter().flat_map(|m| {
         // tool results are stored as one message holding a list; this format wants one each
@@ -51,7 +51,7 @@ pub async fn turn(http: &reqwest::Client, brain: &Brain, system: &str, history: 
     let mut attempt = 0;
     let last = loop {
         attempt += 1;
-        let mut body = json!({"model": brain.model, "messages": messages, "tools": tools(computer, browser)});
+        let mut body = json!({"model": brain.model, "messages": messages, "tools": tools(computer, browser, shell)});
         if !compat.no_stream {
             // streamed, so the reply shows up as it's written instead of all at once at the end
             body["stream"] = json!(true);

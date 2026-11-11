@@ -15,7 +15,7 @@ pub static PACE_MS: AtomicU64 = AtomicU64::new(140);
 /// The tools an agent gets. Without a computer to control (a phone, or a system Minus Hands
 /// doesn't support yet), it gets only the ones that don't need one. The web tools work
 /// everywhere; its own browser, wherever a Chromium-family browser is installed.
-pub fn custom_tools(computer: bool, browser: bool) -> Vec<Value> {
+pub fn custom_tools(computer: bool, browser: bool, shell: bool) -> Vec<Value> {
     let all = vec![
         json!({
             "name": "web_search",
@@ -54,6 +54,14 @@ pub fn custom_tools(computer: bool, browser: bool) -> Vec<Value> {
             }, "required": ["actions"]}
         }),
 
+        json!({
+            "name": "run",
+            "description": "Run a shell command on your cloud computer (Ubuntu Linux, with sudo), and get its output and exit code. Use it for anything a terminal does: install tools (apt-get install -y …), download and process files, run scripts (Python is there), check things. Commands can't be interactive: pass -y and similar flags. Long jobs: run them in the background (nohup … &) and check on them. Files you make stay on the computer.",
+            "input_schema": {"type": "object", "properties": {
+                "command": {"type": "string", "description": "The command, as you'd type it in bash"},
+                "seconds": {"type": "integer", "description": "How long to wait for it (default 60, at most 600)"}
+            }, "required": ["command"]}
+        }),
         json!({
             "name": "look",
             "description": "Read a window as an outline of its elements: buttons, fields, links, lists, with their [number], name, value and state. Call it before acting in a window you haven't seen yet, and when you're unsure what's on screen. Without `window` it reads the window in front.",
@@ -137,10 +145,11 @@ pub fn custom_tools(computer: bool, browser: bool) -> Vec<Value> {
     ];
     const NEEDS_COMPUTER: [&str; 4] = ["look", "windows", "act", "use_skill"];
     const NEEDS_BROWSER: [&str; 3] = ["browser_open", "browser_look", "browser_act"];
+    const NEEDS_SHELL: [&str; 1] = ["run"];
     all.into_iter()
         .filter(|t| {
             let n = t["name"].as_str().unwrap_or("");
-            (computer || !NEEDS_COMPUTER.contains(&n)) && (browser || !NEEDS_BROWSER.contains(&n))
+            (computer || !NEEDS_COMPUTER.contains(&n)) && (browser || !NEEDS_BROWSER.contains(&n)) && (shell || !NEEDS_SHELL.contains(&n))
         })
         .collect()
 }

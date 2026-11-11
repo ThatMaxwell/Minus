@@ -80,7 +80,7 @@ export function chat(main) {
         </div>
         <aside class="pc-panel view-${state.panelView === 'browser' ? 'browser' : 'screen'}" aria-label="${esc(a.name)}’s computer">
           <div class="pcp-h"><span class="live ${a.status === 'working' ? 'on' : ''}"><i></i>${a.status === 'working' ? 'Live' : 'Idle'}</span>
-            <span class="pcp-seg" role="tablist"><button role="tab" data-view="screen">${icon('laptop')}<span>Screen</span></button><button role="tab" data-view="browser">${icon('globe')}<span>Browser</span></button></span><span class="grow"></span>
+            <span class="pcp-seg" role="tablist" ${comp?.real ? 'hidden' : ''}><button role="tab" data-view="screen">${icon('laptop')}<span>Screen</span></button><button role="tab" data-view="browser">${icon('globe')}<span>Browser</span></button></span><span class="grow"></span>
             <button class="btn btn-quiet btn-xs" data-act="takeover" data-tip="Use the mouse and keyboard yourself">${icon('hand')}<span>Take over</span></button></div>
           <div class="pcp-screen"><div class="pcp-sim"></div>
             <div class="pcp-web"><div class="pcp-addr">${icon('lock')}<span class="pcp-url">No page open</span></div><div class="pcp-page"><img alt="${esc(a.name)}’s browser, live" hidden><p class="pcp-msg">When ${esc(a.name)} uses the web, its browser shows up here, live. It’s private: separate from yours.</p></div></div><div class="pcp-yours" hidden><div>${icon('hand')}<b>You’re driving</b><span>${esc(a.name)} is watching and will pick up where you leave off.</span><button class="btn btn-primary btn-sm" data-act="giveback">Give back to ${esc(a.name)}</button></div></div></div>
@@ -318,7 +318,7 @@ export function chat(main) {
     if (webGone || !main.contains(panel) || !state.panel || state.panelView !== 'browser') return;
     const img = $('.pcp-page img', panel), msg = $('.pcp-page .pcp-msg', panel), url = $('.pcp-url', panel);
     if (!APP) { msg.textContent = 'In the Minus app, each agent has its own browser, and you can watch it here live.'; return; }
-    if (!rt.canBrowse()) { msg.textContent = 'Agents get their own browser when Chrome, Edge or Brave is installed.'; return; }
+    if (!rt.canBrowse() && !comp?.real) { msg.textContent = 'Agents get their own browser when Chrome, Edge or Brave is installed.'; return; }
     try {
       const f = document.visibilityState === 'visible' ? await rt.browserFrame(a.id) : null;
       if (f?.jpeg) { img.src = 'data:image/jpeg;base64,' + f.jpeg; img.hidden = false; msg.hidden = true; url.textContent = f.url.replace(/^https?:\/\/(www\.)?/, ''); url.title = f.title; }
@@ -340,7 +340,8 @@ export function chat(main) {
     // it went on the web: show its browser, if you're watching its computer
     if (state.panel && state.panelView !== 'browser') setView('browser');
   }));
-  setView(state.panelView === 'browser' ? 'browser' : 'screen');
+  // a cloud computer has no screen to show here: its browser is what there is to watch
+  setView(comp?.real || state.panelView === 'browser' ? 'browser' : 'screen');
   if (APP) {
     const box = $('.pcp-sim', main);
     box.innerHTML = `<div class="pcp-live"><img alt="${esc(a.name)}’s screen, live"><i class="pcp-mark" hidden></i></div><p class="pcp-msg" hidden></p>`;
