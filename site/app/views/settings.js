@@ -3,7 +3,8 @@
 import { state, on, agent, go, save, emit, providerState, reset, updateAgent } from '../store.js';
 import { $, $$, esc, icon, face, mountMascots, toast, sheet, timeAgo } from '../ui.js';
 import { PROVIDERS, provider } from '../data.js';
-import { VOICES, voiceOf, cap, getKey, setKey, hasKey, readMode, speak, stopSpeaking } from '../voice.js';
+import { voiceOf, voiceName, voicesFor, refreshVoices, canSpeak, engine, engineInfo, ENGINES, getKey, setKey, hasKey, readMode, speak, stopSpeaking } from '../voice.js';
+import * as local from '../local-voice.js';
 import { keySheet, connect, pairSheet } from './pages.js';
 import { prettyModel } from './modelpick.js';
 import * as acct from '../account.js';
@@ -23,6 +24,7 @@ const ACTIONS = [['warn', 'Warn', 'A warning in the chat'], ['kick', 'Kick', 'Th
 
 let off = [];
 const clear = () => { off.forEach((f) => f()); off = []; };
+const installing = new Map(); // local voice -> how far its download is (0 to 1)
 
 export function settings(main) {
   clear(); main.onclick = null; main.onchange = null; main.oninput = null;
@@ -104,17 +106,54 @@ export function settings(main) {
       <div class="set-list danger-list"><div class="set-row"><span class="set-t"><b>Erase every memory</b><small>Shared memories and every agent’s notebook. Their skills stay.</small></span><button class="btn btn-quiet btn-sm danger" data-wipe>Erase</button></div></div>`);
   };
 
-  const voiceSec = () => sec('voice', 'Voice', 'Talk to your agents and hear them answer. Listening uses Whisper and voices are Orpheus, both on Groq with your own key.', `
-    <div class="set-list">
-      <div class="set-row"><span class="prov-ic">${icon('key')}</span><span class="set-t"><b>Groq key</b><small>${hasKey() ? 'Key •••• ' + esc(getKey().slice(-4)) + ' · stored on this computer only' : 'Needed for voice. Free to make at console.groq.com'}</small></span>
-        <button class="btn ${hasKey() ? 'btn-quiet' : 'btn-primary'} btn-sm" data-vkey>${hasKey() ? 'Remove' : 'Add key'}</button></div>
-      <div class="set-row"><span class="prov-ic">${icon('mic')}</span><span class="set-t"><b>Microphone</b><small data-mic-note>Which mic Minus listens with</small></span><select class="field sel" data-mic aria-label="Microphone"><option value="">System default</option></select></div>
-      <div class="set-row"><span class="set-t"><b>Read replies aloud</b><small>Agents answer out loud</small></span>
-        <div class="seg sm" role="radiogroup" aria-label="Read replies aloud">${[['talk', 'When I talk'], ['always', 'Always'], ['never', 'Never']].map(([k, t]) => `<button role="radio" aria-checked="${readMode() === k}" data-read="${k}">${t}</button>`).join('')}</div></div>
-    </div>
-    <h3 class="set-h3">Voices</h3>
-    <div class="voice-grid">${state.agents.map((ag) => `<div class="vg-card" data-va="${esc(ag.id)}">${face(ag, 34)}<span class="set-t"><b>${esc(ag.name)}</b><small>Speaks as ${cap(voiceOf(ag))}</small></span>
-      <div class="seg sm voice-seg" role="radiogroup" aria-label="${esc(ag.name)}’s voice">${VOICES.map((v) => `<button role="radio" aria-checked="${voiceOf(ag) === v}" data-voice="${v}" data-tip="Hear ${cap(v)}">${cap(v)}</button>`).join('')}</div></div>`).join('')}</div>`);
+  const voiceSec = () => {
+    const e = engine(), base = e.split(':')[0], info = engineInfo(e);
+    const keyed = (en) => (en.id === 'groq' ? hasKey() : en.id === 'local' ? Object.values(state.settings.localVoices || {}).some(Boolean) : rt.desktop && rt.hasKey(en.slot));
+    const tiles = ENGINES.map((en) => `<button class="vo-tile ${base === en.id ? 'on' : ''}" data-veng="${en.id}" role="radio" aria-checked="${base === en.id}" ${en.app && !rt.desktop ? 'disabled' : ''}>
+      <span class="vo-top"><b>${esc(en.name)}</b>${base === en.id ? '<span class="vo-on">In use</span>' : keyed(en) ? '<span class="vo-ready">Ready</span>' : ''}</span>
+      <small>${esc(en.model)}</small><span class="vo-about">${esc(en.app && !rt.desktop ? 'In the Minus app' : en.about)}</span></button>`).join('');
+    let panel = '';
+    if (base === 'groq') {
+      panel = `<div class="set-list"><div class="set-row"><span class="prov-ic">${icon('key')}</span><span class="set-t"><b>Groq key</b><small>${hasKey() ? 'Key •••• ' + esc(getKey().slice(-4)) + ' · stored on this computer only' : 'Free to make at console.groq.com. Accept the Orpheus terms in its playground.'}</small></span>
+        <button class="btn ${hasKey() ? 'btn-quiet' : 'btn-primary'} btn-sm" data-vkey>${hasKey() ? 'Remove' : 'Add key'}</button></div></div>`;
+    } else if (base === 'local') {
+      const tier = e.startsWith('local:') ? e.slice(6) : '';
+      panel = `<div class="lv-grid">${Object.entries(local.TIERS).map(([id, t]) => {
+        const have = local.installed(id), off_ = t.desktop && !rt.desktop, busy = installing.has(id);
+        return `<article class="lv-card ${tier === id ? 'on' : ''}" data-lv="${id}">
+          <header><b>${esc(t.name)}</b><span class="lv-size">${esc(t.size)}</span></header>
+          <span class="lv-model">${esc(t.model)}</span><p>${esc(t.about)}</p>
+          <div class="lv-bar" ${busy ? '' : 'hidden'}><i style="width:${Math.round((installing.get(id) || 0) * 100)}%"></i></div>
+          <footer>${off_ ? '<small class="muted">In the Minus app on a computer</small>' : busy ? `<small class="muted" data-lvpct>Downloading… ${Math.round((installing.get(id) || 0) * 100)}%</small>`
+            : have ? `${tier === id ? `<span class="vo-on">In use</span>` : `<button class="btn btn-primary btn-xs" data-lvuse>Use</button>`}<button class="btn btn-quiet btn-xs" data-lvrm>Remove</button>`
+            : `<button class="btn btn-primary btn-xs" data-lvget>${icon('arrow')}<span>Download</span></button>`}</footer></article>`; }).join('')}</div>`;
+    } else {
+      const has = rt.desktop && rt.hasKey(info.slot);
+      const shared = base === 'openrouter' || base === 'gemini';
+      const models = state.settings.voiceModelLists?.[base] || [];
+      panel = `<div class="set-list">
+        <div class="set-row"><span class="prov-ic">${icon('key')}</span><span class="set-t"><b>${esc(info.name)} key</b><small>${has ? `Saved in the vault${shared ? ` · the same key as ${esc(info.name)} in Your AI` : ''}` : `From ${esc(info.where)}. It goes into this computer’s password store.`}</small></span>
+          <button class="btn ${has ? 'btn-quiet' : 'btn-primary'} btn-sm" data-vck>${has ? 'Replace' : 'Add key'}</button></div>
+        ${has ? `<div class="set-row"><span class="set-t"><b>Model</b><small>${esc(base === 'elevenlabs' ? 'Eleven v3 and newer understand voice directions like [excited]' : base === 'gemini' ? 'Flash is the most expressive, Flash-Lite the fastest' : 'Each model has its own voices')}</small></span>
+          <select class="field sel" data-vmodel aria-label="Voice model"><option value="">Recommended</option>${models.map((m) => `<option value="${esc(m.id)}" ${state.settings.voiceModels?.[base] === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>
+          <button class="icon-btn sm" data-vrefresh data-tip="Get the latest voices and models">${icon('rewind')}</button></div>` : ''}
+      </div>`;
+    }
+    const vs = voicesFor(e);
+    return sec('voice', 'Voice', 'Talk to your agents and hear them answer. Pick where their voices come from: your own key, or a voice that runs on this computer.', `
+      <div class="vo-grid" role="radiogroup" aria-label="Voices from">${tiles}</div>
+      ${panel}
+      <div class="set-list">
+        <div class="set-row"><span class="prov-ic">${icon('mic')}</span><span class="set-t"><b>Microphone</b><small data-mic-note>Which mic Minus listens with${hasKey() ? '' : ' · listening uses Whisper on Groq: add a Groq key to talk'}</small></span><select class="field sel" data-mic aria-label="Microphone"><option value="">System default</option></select></div>
+        <div class="set-row"><span class="set-t"><b>Read replies aloud</b><small>Agents answer out loud</small></span>
+          <div class="seg sm" role="radiogroup" aria-label="Read replies aloud">${[['talk', 'When I talk'], ['always', 'Always'], ['never', 'Never']].map(([k, t]) => `<button role="radio" aria-checked="${readMode() === k}" data-read="${k}">${t}</button>`).join('')}</div></div>
+      </div>
+      <h3 class="set-h3">Each agent’s voice <small>· ${esc(e.startsWith('local:') ? local.TIERS[e.slice(6)]?.model || '' : info.name + ' · ' + info.model)}</small></h3>
+      ${vs.length ? `<div class="voice-grid">${state.agents.map((ag) => `<div class="vg-card" data-va="${esc(ag.id)}">${face(ag, 34)}<span class="set-t"><b>${esc(ag.name)}</b><small>Speaks as ${esc(voiceName(ag))}</small></span>
+        <select class="field sel" data-agvoice aria-label="${esc(ag.name)}’s voice">${vs.map(([id, n, about]) => `<option value="${esc(id)}" ${voiceOf(ag) === id ? 'selected' : ''}>${esc(n)}${about ? ` · ${esc(about)}` : ''}</option>`).join('')}</select>
+        <button class="icon-btn sm" data-hear data-tip="Hear it" ${canSpeak() ? '' : 'disabled'}>${icon('speaker')}</button></div>`).join('')}</div>`
+        : `<p class="mem-none">${base === 'local' ? 'Download a voice above, then pick one for each agent.' : 'Add the key above to see its voices.'}</p>`}`);
+  };
 
   const agentsSec = () => sec('agents', 'Agents', 'How your agents look, sound and behave.', `
     <div class="set-cols">
@@ -202,6 +241,18 @@ export function settings(main) {
   main.addEventListener('scroll', onScroll, { passive: true });
   const io = { disconnect: () => main.removeEventListener('scroll', onScroll) };
   off.push(() => io?.disconnect(), () => { state.settings.setAt = where; save(); });
+  // a service's voices and models, fetched with your key (kept, so the page doesn't wait next time)
+  const loadVoiceLists = async (e, loud = false) => {
+    const b = e.split(':')[0];
+    if (!engineInfo(b).app || !window.__TAURI__) return;
+    try {
+      const [models] = await Promise.all([window.__TAURI__.core.invoke('voice_models', { engine: b }), refreshVoices(b)]);
+      (state.settings.voiceModelLists ||= {})[b] = models; save();
+      if (main.isConnected) draw();
+      if (loud) toast('Voices updated', { icon: 'speaker' });
+    } catch (x) { if (loud || !voicesFor(b).length) toast(String(x?.message || x), { icon: 'x' }); }
+  };
+  if (engineInfo(engine()).app && rt.desktop && rt.hasKey(engineInfo(engine()).slot) && !voicesFor(engine()).length) loadVoiceLists(engine());
   const vis = () => document.visibilityState === 'visible' && fillIsland();
   document.addEventListener('visibilitychange', vis); off.push(() => document.removeEventListener('visibilitychange', vis));
   off.push(on('account', draw), on('devices', fillDevices), on('vault', draw), on('memories', draw), on('safety', draw), on('keys', draw));
@@ -211,6 +262,14 @@ export function settings(main) {
 
   main.onchange = (e) => {
     if (e.target.matches('[data-sutime]') && e.target.value) { state.settings.standupAt = e.target.value; save(); emit('standup'); draw(); }
+    if (e.target.matches('[data-vmodel]')) { const b = engine().split(':')[0]; (state.settings.voiceModels ||= {})[b] = e.target.value || null; save(); refreshVoices().then(draw).catch(() => {}); return; }
+    if (e.target.matches('[data-agvoice]')) {
+      const aid = e.target.closest('[data-va]').dataset.va, ag = agent(aid), v = e.target.value;
+      updateAgent(aid, { voices: { ...(ag.voices || {}), [engine()]: v }, ...(engine() === 'groq' ? { voice: v } : {}) });
+      draw();
+      if (canSpeak()) speak(aid, `Hi, I’m ${ag.name}. This is how I sound.`, { voice: v }).catch((err) => toast(err.human || String(err), { icon: 'speaker' }));
+      return;
+    }
     if (e.target.matches('[data-mic]')) { state.settings.mic = e.target.value || null; save(); emit('settings'); toast(e.target.value ? `Minus listens with ${e.target.selectedOptions[0].textContent}` : 'Minus listens with the system’s mic', { icon: 'mic' }); }
   };
   main.onsubmit = (e) => {
@@ -254,15 +313,33 @@ export function settings(main) {
       return keySheet(draw);
     }
     if (e.target.closest('[data-micallow]')) { try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach((t) => t.stop()); } catch {} return fillMics(); }
+    // where voices come from
+    const ve = e.target.closest('[data-veng]');
+    if (ve) {
+      const id = ve.dataset.veng;
+      if (id === 'local') { const t = Object.keys(local.TIERS).find((k) => local.installed(k)); state.settings.voiceEngine = t ? `local:${t}` : 'local:'; }
+      else state.settings.voiceEngine = id;
+      save(); stopSpeaking(); draw();
+      if (engineInfo(id).app && rt.desktop && rt.hasKey(engineInfo(id).slot)) loadVoiceLists(id);
+      return;
+    }
+    if (e.target.closest('[data-vck]')) return voiceKeySheet(engine().split(':')[0], () => { draw(); loadVoiceLists(engine()); });
+    if (e.target.closest('[data-vrefresh]')) return loadVoiceLists(engine(), true);
+    const lv = e.target.closest('[data-lv]');
+    if (lv && e.target.closest('[data-lvget]')) {
+      const tier = lv.dataset.lv; installing.set(tier, 0); draw();
+      let last = 0;
+      local.install(tier, (f) => { installing.set(tier, f); if (Date.now() - last > 250) { last = Date.now(); const c = $(`[data-lv="${tier}"]`, main); if (c) { $('.lv-bar i', c).style.width = `${Math.round(f * 100)}%`; const t = $('[data-lvpct]', c); if (t) t.textContent = `Downloading… ${Math.round(f * 100)}%`; } } })
+        .then(() => { installing.delete(tier); state.settings.voiceEngine = `local:${tier}`; save(); draw(); toast(`${local.TIERS[tier].name} voice is ready`, { icon: 'speaker' }); })
+        .catch((x) => { installing.delete(tier); draw(); toast(`Couldn’t get the ${local.TIERS[tier].name.toLowerCase()} voice: ${x?.message || x}`, { icon: 'x' }); });
+      return;
+    }
+    if (lv && e.target.closest('[data-lvuse]')) { state.settings.voiceEngine = `local:${lv.dataset.lv}`; save(); return draw(); }
+    if (lv && e.target.closest('[data-lvrm]')) { await local.uninstall(lv.dataset.lv); if (engine() === `local:${lv.dataset.lv}`) state.settings.voiceEngine = 'local:'; save(); return draw(); }
+    const hb = e.target.closest('[data-hear]');
+    if (hb) { const ag = agent(hb.closest('[data-va]').dataset.va); return speak(ag.id, `Hi, I’m ${ag.name}. This is how I sound.`).catch((err) => toast(err.human || String(err), { icon: 'speaker' })); }
     const rd = e.target.closest('[data-read]');
     if (rd) { state.settings.readAloud = rd.dataset.read; save(); return draw(); }
-    const vb = e.target.closest('[data-voice]');
-    if (vb) {
-      const aid = vb.closest('[data-va]').dataset.va, ag = agent(aid), v = vb.dataset.voice;
-      updateAgent(aid, { voice: v }); draw();
-      if (!hasKey()) return keySheet(draw);
-      return speak(aid, `Hi, I’m ${ag.name}. This is how I sound.`, { voice: v }).catch((err) => toast(err.human, { icon: 'speaker' }));
-    }
     // memory
     const mr = e.target.closest('[data-memrm]');
     if (mr) return nb.removeShared(mr.closest('[data-mem]').dataset.mem);
@@ -276,6 +353,29 @@ export function settings(main) {
     // safety
     if (e.target.closest('[data-lift]')) return confirmSheet('Lift the ban?', 'Only if you’re the owner of this computer and you’re sure it won’t happen again.', 'Lift it', () => { safety.lift(); toast('Ban lifted', { icon: 'shield' }); });
     if (e.target.closest('[data-clearlog]')) return safety.clearLog();
+  };
+}
+
+// A key for a voice service: saved in the vault, tried for real before it's kept.
+function voiceKeySheet(id, done) {
+  const info = ENGINES.find((x) => x.id === id);
+  const s = sheet(`<form class="mini-form"><h3>${icon('speaker')} ${esc(info.name)} voices</h3>
+    <p class="muted small">Paste an API key from <b>${esc(info.where)}</b>. It goes into this computer’s password store and is only ever sent to ${esc(info.name)}.</p>
+    <input class="field mono" type="password" name="k" placeholder="${esc(info.keyHint || 'API key')}" required autocomplete="off" spellcheck="false">
+    <p class="hint-line warn" data-err></p>
+    <div class="row-end"><button type="button" class="btn btn-quiet btn-sm" data-x>Cancel</button><button class="btn btn-primary btn-sm">Save key</button></div></form>`, { cls: 'small' });
+  $('[data-x]', s.el).onclick = s.close;
+  setTimeout(() => $('input', s.el).focus(), 30);
+  $('form', s.el).onsubmit = async (ev) => {
+    ev.preventDefault();
+    const k = String(new FormData(ev.target).get('k') || '').trim(), err = $('[data-err]', s.el), go = $('.btn-primary', s.el);
+    if (!k) return;
+    go.disabled = true; go.textContent = 'Checking…'; err.textContent = '';
+    try {
+      await rt.setKey(info.slot, k);
+      if (id !== 'gemini') await window.__TAURI__.core.invoke('voice_list', { engine: id, model: null });
+      s.close(); toast(`${info.name} voices are ready`, { icon: 'speaker' }); done();
+    } catch (x) { err.textContent = String(x?.message || x); go.disabled = false; go.textContent = 'Save key'; }
   };
 }
 

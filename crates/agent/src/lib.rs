@@ -16,6 +16,9 @@ pub mod web;
 pub mod browser;
 pub mod skills;
 pub mod tools;
+pub mod tts;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub mod orpheus;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -297,6 +300,17 @@ impl Runtime {
     }
 
     /// How long to pause before each action so people can follow the ghost cursor (0 = full speed).
+    /// Reads text aloud with a voice service (ElevenLabs, OpenRouter, Gemini) and the person's key.
+    pub async fn voice_say(&self, engine: &str, key: &str, model: Option<&str>, voice: &str, text: &str) -> Result<tts::Spoken, String> {
+        tts::say(&self.inner.http, &tts::Bases::default(), engine, key, model, voice, text).await
+    }
+    pub async fn voice_list(&self, engine: &str, key: &str, model: Option<&str>) -> Result<Vec<tts::VoiceInfo>, String> {
+        tts::voices(&self.inner.http, &tts::Bases::default(), engine, key, model).await
+    }
+    pub async fn voice_models(&self, engine: &str, key: &str) -> Result<Vec<tts::VoiceInfo>, String> {
+        tts::models(&self.inner.http, &tts::Bases::default(), engine, key).await
+    }
+
     /// How to find a secret in the vault by name (the app keeps them in the OS keychain).
     pub fn set_secrets(&self, f: tools::SecretFn) {
         *tools::SECRETS.write().unwrap() = Some(f);

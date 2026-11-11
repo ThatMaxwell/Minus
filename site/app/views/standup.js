@@ -4,7 +4,7 @@ import { state, agent, on, go, save, post } from '../store.js';
 import { $, $$, esc, icon, face, mountMascots, mascotsOf, motion, IN, toast } from '../ui.js';
 import { react } from '../director.js';
 import { resolve, choose, respond } from '../brain.js';
-import { hasKey, speak, stopSpeaking } from '../voice.js';
+import { hasKey, speak, stopSpeaking, canSpeak } from '../voice.js';
 import * as su from '../standup.js';
 import * as saved from '../saved.js';
 
@@ -13,7 +13,7 @@ const DATE = () => new Date().toLocaleDateString([], { weekday: 'long', month: '
 export function standup(main) {
   const { speaking, away } = su.round();
   let i = 0, playing = false, timer = 0;
-  const voice = () => hasKey() && state.settings.standupVoice !== false;
+  const voice = () => canSpeak() && state.settings.standupVoice !== false;
   if (!speaking.length) {
     main.innerHTML = `<section class="su"><div class="empty"><p>No one to hear from yet. Make an agent and give it a job.</p></div></section>`;
     return;
@@ -21,7 +21,7 @@ export function standup(main) {
   main.innerHTML = `<section class="su">
     <header class="su-h"><div><h1>${icon('sunrise')}Morning stand-up</h1><p>${esc(DATE())} · ${speaking.length} agent${speaking.length === 1 ? '' : 's'}${away.length ? ` · ${away.map((b) => esc(b.agent.name)).join(', ')} ${away.length === 1 ? 'is' : 'are'} away` : ''}</p></div>
       <div class="su-tools">
-        <button class="icon-btn ${voice() ? 'on' : ''}" data-su="voice" data-tip="${hasKey() ? 'Hear them say it' : 'Add a Groq key in Settings to hear them'}">${icon('speaker')}</button>
+        <button class="icon-btn ${voice() ? 'on' : ''}" data-su="voice" data-tip="${canSpeak() ? 'Hear them say it' : 'Choose a voice in Settings to hear them'}">${icon('speaker')}</button>
         <button class="btn btn-quiet btn-sm" data-su="play">${icon('play')}<span>Play through</span></button>
       </div></header>
     <div class="su-stage" aria-hidden="true"><div class="su-spot"></div><div class="su-row">${speaking.map((b, k) => `<button class="su-a" data-k="${k}" tabindex="-1">${face(b.agent, 96)}<b>${esc(b.agent.name)}</b>${b.needs.length ? '<i class="su-flag"></i>' : ''}</button>`).join('')}<button class="su-a su-end" data-k="${speaking.length}" tabindex="-1"><span class="su-end-ic">${icon('check')}</span><b>Wrap up</b></button></div><div class="su-floor"></div></div>
@@ -102,7 +102,7 @@ export function standup(main) {
       if (k === 'back') return show(i - 1);
       if (k === 'play') { playing = !playing; clearTimeout(timer); if (playing) show(i === speaking.length ? 0 : i); else { stopSpeaking(); syncPlay(); } return; }
       if (k === 'voice') {
-        if (!hasKey()) return toast('Add a Groq key in Settings → Voice to hear them.', { icon: 'speaker' });
+        if (!canSpeak()) return toast('Choose a voice in Settings → Voice to hear them.', { icon: 'speaker' });
         state.settings.standupVoice = !voice(); save(); b.classList.toggle('on', voice()); if (!voice()) stopSpeaking();
         return;
       }

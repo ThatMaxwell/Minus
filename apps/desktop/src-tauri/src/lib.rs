@@ -167,6 +167,55 @@ async fn ai_check(app: AppHandle, rt: tauri::State<'_, Agents>, provider: String
     rt.0.check(&brain, &name).await
 }
 
+/* ───────── voices: ElevenLabs, OpenRouter and Gemini, with keys from the keychain ───────── */
+fn voice_key(app: &AppHandle, engine: &str) -> Result<String, String> {
+    let slot = match engine {
+        "elevenlabs" => "voice-elevenlabs",
+        "openrouter" => "openrouter",
+        "gemini" => "gemini",
+        other => return Err(format!("No voice service called {other}")),
+    };
+    keys::get(&data_dir(app)?, slot).ok_or_else(|| "Add the key for this voice first (Settings → Voice).".into())
+}
+#[tauri::command]
+async fn voice_say(app: AppHandle, rt: tauri::State<'_, Agents>, engine: String, model: Option<String>, voice: String, text: String) -> Result<agent::tts::Spoken, String> {
+    let key = voice_key(&app, &engine)?;
+    rt.0.voice_say(&engine, &key, model.as_deref(), &voice, &text).await
+}
+#[tauri::command]
+async fn voice_list(app: AppHandle, rt: tauri::State<'_, Agents>, engine: String, model: Option<String>) -> Result<Vec<agent::tts::VoiceInfo>, String> {
+    let key = if engine == "gemini" { String::new() } else { voice_key(&app, &engine)? };
+    rt.0.voice_list(&engine, &key, model.as_deref()).await
+}
+#[tauri::command]
+async fn voice_models(app: AppHandle, rt: tauri::State<'_, Agents>, engine: String) -> Result<Vec<agent::tts::VoiceInfo>, String> {
+    let key = if engine == "gemini" { String::new() } else { voice_key(&app, &engine)? };
+    rt.0.voice_models(&engine, &key).await
+}
+
+/* ───────── the large local voice (Orpheus, run by llama.cpp on this computer) ───────── */
+#[cfg(desktop)]
+#[tauri::command]
+async fn orpheus_install(app: AppHandle) -> Result<(), String> {
+    let base = data_dir(&app)?;
+    let h = app.clone();
+    agent::orpheus::install(&agent::http_client(), &base, &move |done, total| {
+        let _ = h.emit("voice-install", serde_json::json!({ "done": done, "total": total }));
+    })
+    .await
+}
+#[cfg(desktop)]
+#[tauri::command]
+async fn orpheus_codes(app: AppHandle, text: String, voice: String) -> Result<Vec<i64>, String> {
+    agent::orpheus::speak(&agent::http_client(), &data_dir(&app)?, &voice, &text).await
+}
+#[cfg(desktop)]
+#[tauri::command]
+fn orpheus_remove(app: AppHandle) -> Result<(), String> {
+    agent::orpheus::remove(&data_dir(&app)?);
+    Ok(())
+}
+
 /// Ask the room: one agent's answer (round 1), or its reply to the others (round 2).
 #[tauri::command]
 async fn room_answer(app: AppHandle, rt: tauri::State<'_, Agents>, spec: agent::AgentSpec, brain: BrainIn, notes: String, question: String, others: Vec<(String, String)>, round: u8) -> Result<agent::room::Answer, String> {
@@ -517,11 +566,11 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
 /// The commands the app's pages can call.
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
+    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, orpheus_install, orpheus_codes, orpheus_remove]
 }
 #[cfg(mobile)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind]
+    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models]
 }
 
 /// When Minus can't start or hits a bug it can't recover from, say so (a popup on Windows,
@@ -641,6 +690,16 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
+        .map(|app| {
+            app.run(|_, e| {
+                // the large local voice runs llama.cpp: it stops with Minus
+                #[cfg(desktop)]
+                if let tauri::RunEvent::Exit = e {
+                    agent::orpheus::stop();
+                }
+                let _ = e;
+            })
+        })
         .unwrap_or_else(|e| report(&format!("Minus couldn't start.\n\n{e}")));
 }

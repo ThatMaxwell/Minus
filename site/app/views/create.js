@@ -5,7 +5,7 @@ import { $, $$, esc, icon, sheet, toast, motion, IN } from '../ui.js';
 import { Mascot3D, IDLES, SLOTS, snapshot } from '../../js/mascot3d.js';
 import { act } from '../director.js';
 import { PALETTE, PROVIDERS, ROLES, PERMISSIONS, DEFAULT_PERMS, provider } from '../data.js';
-import { VOICES, voiceOf, cap as capV, hasKey, speak } from '../voice.js';
+import { voicesFor, voiceOf, canSpeak, engine, speak } from '../voice.js';
 
 const STEPS = ['Look', 'Basics', 'Brain', 'Computer', 'Permissions', 'Review'];
 const LOOK_TABS = [['color', 'Color'], ['idle', 'Idle'], ['head', 'Head'], ['extras', 'Face extras'], ['neck', 'Neck']];
@@ -20,6 +20,7 @@ export function openCreate({ edit, step = 0 } = {}) {
     model: firstConnected, computer: 'new', perms: { ...DEFAULT_PERMS },
   };
   let cur = step, lookTab = 'color', m = null;
+  const myVoice = () => voiceOf(d);
 
   const s = sheet(`
     <div class="cr">
@@ -142,8 +143,8 @@ export function openCreate({ edit, step = 0 } = {}) {
       <label class="lbl" for="cr-ins">What should ${esc(d.name || 'it')} do?</label>
       <textarea id="cr-ins" class="field" rows="4" placeholder="Describe the job like you would to a new teammate.">${esc(d.instructions)}</textarea>
       <div class="chips sugg">${['Keep my inbox at zero and draft replies in my voice', 'Find leads that match our customers and add them to the CRM', 'Reproduce bug reports and open issues with steps', 'Match receipts to card charges every month'].map((x) => `<button class="chip sm" data-sugg="${esc(x)}">${esc(x)}</button>`).join('')}</div>
-      <label class="lbl">Voice <span class="muted small">${hasKey() ? 'click one to hear it' : 'when you talk to it out loud'}</span></label>
-      <div class="seg sm voice-seg" role="radiogroup" aria-label="Voice">${VOICES.map((v) => `<button role="radio" aria-checked="${(d.voice || voiceOf(d)) === v}" data-cv="${v}">${capV(v)}</button>`).join('')}</div>`;
+      ${voicesFor().length ? `<label class="lbl">Voice <span class="muted small">${canSpeak() ? 'click one to hear it' : 'when you talk to it out loud'}</span></label>
+      <div class="seg sm voice-seg" role="radiogroup" aria-label="Voice">${voicesFor().slice(0, 6).map(([v, n]) => `<button role="radio" aria-checked="${myVoice() === v}" data-cv="${esc(v)}">${esc(n)}</button>`).join('')}</div>` : ''}`;
   }
   function wireBasics() {
     const n = $('#cr-name', pane), ins = $('#cr-ins', pane), hint = $('#cr-name-hint', pane);
@@ -168,9 +169,10 @@ export function openCreate({ edit, step = 0 } = {}) {
       if (sg) { ins.value = d.instructions = sg.dataset.sugg; act(m, 'yes'); }
       const cv = e.target.closest('[data-cv]');
       if (cv) {
-        d.voice = cv.dataset.cv; $$('[data-cv]', pane).forEach((x) => x.setAttribute('aria-checked', x === cv));
+        d.voices = { ...(d.voices || {}), [engine()]: cv.dataset.cv }; if (engine() === 'groq') d.voice = cv.dataset.cv;
+        $$('[data-cv]', pane).forEach((x) => x.setAttribute('aria-checked', x === cv));
         act(m, 'yes');
-        if (hasKey()) speak(null, `Hi, I’m ${d.name || 'your new agent'}.`, { voice: d.voice, mascots: [m] }).catch(() => {});
+        if (canSpeak()) speak(null, `Hi, I’m ${d.name || 'your new agent'}.`, { voice: cv.dataset.cv, mascots: [m] }).catch(() => {});
       }
     });
     ins.addEventListener('focus', () => act(m, 'listening', ins));
@@ -259,7 +261,7 @@ export function openCreate({ edit, step = 0 } = {}) {
       <div><dt>Job</dt><dd>${esc(d.role || 'Not set')}</dd></div>
       <div><dt>Thinks with</dt><dd>${provider(d.model).icon}${esc(provider(d.model).name)}</dd></div>
       <div><dt>Computer</dt><dd>${esc(c || '—')}</dd></div>
-      <div><dt>Voice</dt><dd>${capV(d.voice || voiceOf(d))}</dd></div>
+      <div><dt>Voice</dt><dd>${esc((voicesFor().find(([v]) => v === myVoice()) || [0, 'Default'])[1])}</dd></div>
       <div><dt>Wears</dt><dd>${esc(Object.values(d.outfit).filter(Boolean).map(cap).join(', ') || 'Nothing yet')}</dd></div>
       <div><dt>Allowed on its own</dt><dd>${esc(allowed.join(', ') || 'Nothing, it always asks')}</dd></div>
       ${d.instructions ? `<div class="wide"><dt>Instructions</dt><dd>${esc(d.instructions)}</dd></div>` : ''}

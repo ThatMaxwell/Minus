@@ -272,3 +272,55 @@ async fn the_agents_own_browser() {
     assert!(rt.browser_frame("a1").await.is_some_and(|f| f.0.len() > 1000 && f.2 == "Voos"));
     assert!(matches!(ev.last(), Some(Event::Done { .. })));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn voices_from_three_services() {
+    use agent::tts::{say, voices, Bases};
+    use base64::Engine as _;
+    let http = reqwest::Client::new();
+    // Gemini sends bare samples: they come back as a .wav, and the direction became a style
+    let pcm = base64::engine::general_purpose::STANDARD.encode([0u8; 960]);
+    let (g, gseen) = server(vec![(200, json!({"candidates": [{"content": {"parts": [{"inlineData": {"mimeType": "audio/L16;codec=pcm;rate=24000", "data": pcm}}]}}]}).to_string())]);
+    let g = g.trim_end_matches("/v1").to_string();
+    let bases = Bases { elevenlabs: g.clone(), openrouter: g.clone(), gemini: g.clone() };
+    let s = say(&http, &bases, "gemini", "AIza-test", None, "Kore", "[cheerful] Pronto, tudo feito!").await.unwrap();
+    let wav = base64::engine::general_purpose::STANDARD.decode(&s.audio).unwrap();
+    assert!(wav.starts_with(b"RIFF") && wav.len() == 44 + 960 && s.mime == "audio/wav");
+    {
+        let seen = gseen.lock().unwrap();
+        assert_eq!(seen[0].path, "/v1beta/models/gemini-3.8-flash-tts:generateContent");
+        let part = &seen[0].body["contents"][0]["parts"][0];
+        assert_eq!(part["text"], "Pronto, tudo feito!");
+        assert_eq!(part["speech_metadata"]["style"], "cheerful");
+        assert_eq!(seen[0].body["generationConfig"]["speechConfig"]["voiceConfig"]["voice"], "Kore");
+    }
+    // ElevenLabs v3 keeps the directions (it reads them as audio tags)
+    let (e, eseen) = server(vec![(200, "ID3-fake-mp3".into()), (200, json!({"voices": [{"voice_id": "v1", "name": "Sarah", "labels": {"description": "confident", "accent": "american"}}]}).to_string())]);
+    let e = e.trim_end_matches("/v1").to_string();
+    let bases = Bases { elevenlabs: e.clone(), openrouter: e.clone(), gemini: e.clone() };
+    let s = say(&http, &bases, "elevenlabs", "xi-test", None, "v1", "[excited] We did it!").await.unwrap();
+    assert_eq!(s.mime, "audio/mpeg");
+    let vs = voices(&http, &bases, "elevenlabs", "xi-test", None).await.unwrap();
+    assert_eq!(vs[0].name, "Sarah");
+    assert!(vs[0].about.contains("confident"));
+    {
+        let seen = eseen.lock().unwrap();
+        assert_eq!(seen[0].path, "/v1/text-to-speech/v1?output_format=mp3_44100_128");
+        assert_eq!(seen[0].body["text"], "[excited] We did it!");
+        assert_eq!(seen[0].body["model_id"], "eleven_v3");
+    }
+    // OpenRouter: speech models with their voices; the directions are left out of what's read
+    let (o, oseen) = server(vec![
+        (200, json!({"data": [{"id": "google/gemini-3.8-flash-tts", "name": "Gemini 3.8 Flash TTS", "architecture": {"output_modalities": ["speech"]}, "supported_voices": ["Kore", "Puck"]}]}).to_string()),
+        (200, "ID3-fake-mp3".into()),
+    ]);
+    let o = o.trim_end_matches("/v1").to_string();
+    let bases = Bases { elevenlabs: o.clone(), openrouter: o.clone(), gemini: o.clone() };
+    let vs = voices(&http, &bases, "openrouter", "sk-or-test", None).await.unwrap();
+    assert_eq!(vs.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(), ["Kore", "Puck"]);
+    say(&http, &bases, "openrouter", "sk-or-test", None, "Puck", "[warm] Oi, Karla!").await.unwrap();
+    let seen = oseen.lock().unwrap();
+    assert_eq!(seen[1].path, "/v1/audio/speech");
+    assert_eq!(seen[1].body["input"], "Oi, Karla!");
+    assert_eq!(seen[1].auth, "Bearer sk-or-test");
+}

@@ -1,10 +1,48 @@
 // Talk to an agent and hear it answer.
 //   Listening: the mic is recorded and transcribed by Whisper (whisper-large-v3-turbo) on Groq.
-//   Speaking:  replies are read by Orpheus (canopylabs/orpheus-v1-english) on Groq. No system voices.
+//   Speaking:  replies are read by the voice you choose in Settings → Voice: Orpheus on Groq,
+//              ElevenLabs, OpenRouter, Gemini (your keys), or a voice that runs on this computer.
 // The Groq key is kept on this computer only (localStorage here; the desktop app keeps it in the
 // OS keychain) and goes straight to api.groq.com, nowhere else.
 import { state, agent, emit, on } from './store.js';
 import { mascotsOf } from './ui.js';
+import * as local from './local-voice.js';
+import * as rt from './runtime.js';
+
+const tauri = window.__TAURI__;
+/* ───────── where voices come from ───────── */
+export const ENGINES = [
+  { id: 'groq', name: 'Groq', model: 'Orpheus', about: 'Expressive voices, and it also listens', where: 'console.groq.com' },
+  { id: 'elevenlabs', name: 'ElevenLabs', model: 'Eleven v3', about: 'The most natural voices, 70+ languages', slot: 'voice-elevenlabs', keyHint: 'sk_…', where: 'elevenlabs.io', app: true },
+  { id: 'openrouter', name: 'OpenRouter', model: 'Gemini, GPT, Grok, Voxtral…', about: 'One key, many voice models', slot: 'openrouter', keyHint: 'sk-or-…', where: 'openrouter.ai', app: true },
+  { id: 'gemini', name: 'Gemini', model: 'Gemini 3.8 Flash TTS', about: '30 voices, 100+ languages', slot: 'gemini', keyHint: 'AQ.… (or AIza…)', where: 'aistudio.google.com', app: true },
+  { id: 'local', name: 'On this computer', model: 'Kokoro, Supertonic, Orpheus', about: 'Free, private, works offline' },
+];
+const GEMINI = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir', 'Leda', 'Orus', 'Aoede', 'Callirrhoe', 'Autonoe', 'Enceladus', 'Iapetus', 'Umbriel', 'Algieba', 'Despina', 'Erinome', 'Algenib', 'Rasalgethi', 'Laomedeia', 'Achernar', 'Alnilam', 'Schedar', 'Gacrux', 'Pulcherrima', 'Achird', 'Zubenelgenubi', 'Vindemiatrix', 'Sadachbia', 'Sadaltager', 'Sulafat'];
+/** 'groq' | 'elevenlabs' | 'openrouter' | 'gemini' | 'local:small' | 'local:medium' | 'local:large' */
+export const engine = () => state.settings.voiceEngine || 'groq';
+export const engineInfo = (e = engine()) => ENGINES.find((x) => x.id === e.split(':')[0]) || ENGINES[0];
+const lists = () => (state.settings.voiceLists ||= {}); // voices fetched from a service, kept between runs
+/** The voices the chosen engine has: [id, name, about]. */
+export function voicesFor(e = engine()) {
+  if (e === 'groq') return VOICES.map((v) => [v, cap(v), '']);
+  if (e === 'gemini') return GEMINI.map((v) => [v, v, '']);
+  if (e.startsWith('local:')) return local.TIERS[e.slice(6)]?.voices || [];
+  return (lists()[e] || []).map((v) => [v.id, v.name, v.about || '']);
+}
+export async function refreshVoices(e = engine()) {
+  if (!tauri || !engineInfo(e).app || e === 'gemini') return voicesFor(e);
+  const vs = await tauri.core.invoke('voice_list', { engine: e, model: state.settings.voiceModels?.[e] || null });
+  lists()[e] = vs; emit('voice');
+  return voicesFor(e);
+}
+/** Can the chosen voice speak right now? */
+export function canSpeak(e = engine()) {
+  if (e === 'groq') return hasKey();
+  if (e.startsWith('local:')) return local.installed(e.slice(6));
+  const info = engineInfo(e);
+  return !!tauri && !!info.slot && rt.hasKey(info.slot);
+}
 
 const API = 'https://api.groq.com/openai/v1';
 const LS = 'minus.voice.key';
@@ -13,7 +51,15 @@ const TTS_MODEL = 'canopylabs/orpheus-v1-english', STT_MODEL = 'whisper-large-v3
 export const VOICES = ['diana', 'hannah', 'autumn', 'troy', 'daniel', 'austin'];
 const SEED_VOICE = { scout: 'hannah', inbox: 'diana', ledger: 'daniel', patch: 'austin', atlas: 'troy', rosie: 'autumn' };
 const hash = (s) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
-export const voiceOf = (a) => (a && (a.voice || SEED_VOICE[a.id] || VOICES[hash(a.name || a.id || '') % VOICES.length])) || 'diana';
+const groqVoice = (a) => (a && (a.voice || SEED_VOICE[a.id] || VOICES[hash(a.name || a.id || '') % VOICES.length])) || 'diana';
+/** The agent's voice with the chosen engine: its own pick, or one chosen from its name. */
+export function voiceOf(a, e = engine()) {
+  if (e === 'groq') return groqVoice(a);
+  const vs = voicesFor(e); if (!vs.length) return '';
+  const mine = a?.voices?.[e];
+  return mine && vs.some((v) => v[0] === mine) ? mine : vs[hash(a?.name || a?.id || '') % vs.length][0];
+}
+export const voiceName = (a, e = engine()) => (voicesFor(e).find((v) => v[0] === voiceOf(a, e)) || [])[1] || cap(voiceOf(a, e) || 'default');
 export const cap = (s) => s[0].toUpperCase() + s.slice(1);
 
 export const getKey = () => { try { return localStorage.getItem(LS) || ''; } catch { return ''; } };
@@ -33,6 +79,8 @@ export class VoiceError extends Error {
       mic: 'Minus can’t use the microphone. Allow it in your system settings.',
       quiet: 'Didn’t catch that. Try again a little closer to the mic.',
       failed: 'Voice didn’t work this time. Try again.',
+      setup: 'Choose a voice in Settings → Voice first.',
+      service: this.detail || 'That voice didn’t work this time.',
     }[this.code] || 'Voice didn’t work this time.';
   }
 }
@@ -108,7 +156,7 @@ export async function transcribe(blob) {
 
 /* ───────── speaking ───────── */
 // Orpheus reads up to 200 characters per request: split at sentence ends, then at commas.
-export function chunks(text, max = 190) {
+export function chunks(text, max = engine() === 'groq' ? 190 : 380) {
   const out = split(text, max);
   // a voice direction ([cheerful]) lasts until the next one, even across pieces
   let tone = '';
@@ -139,12 +187,29 @@ function trim(buf, c) {
   for (let ch = 0; ch < buf.numberOfChannels; ch++) out.copyToChannel(buf.getChannelData(ch).subarray(a, b), ch);
   return out;
 }
-const cache = new Map(); // voice|text -> Promise<AudioBuffer>
-function say(voice, text) {
-  const k = voice + '|' + text;
+const cache = new Map(); // engine|voice|text -> Promise<AudioBuffer>
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)).buffer;
+async function synth(e, voice, text) {
+  if (e === 'groq') {
+    const r = await api('/audio/speech', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: TTS_MODEL, voice, input: text, response_format: 'wav' }) });
+    return audio().decodeAudioData(await r.arrayBuffer());
+  }
+  if (e.startsWith('local:')) {
+    let out;
+    try { out = await local.synth(e.slice(6), voice, text); } catch (x) { throw new VoiceError('service', String(x?.message || x)); }
+    const b = audio().createBuffer(1, out.samples.length, out.rate); b.copyToChannel(Float32Array.from(out.samples), 0);
+    return b;
+  }
+  if (!tauri) throw new VoiceError('setup');
+  let r;
+  try { r = await tauri.core.invoke('voice_say', { engine: e, model: state.settings.voiceModels?.[e] || null, voice, text }); }
+  catch (x) { throw new VoiceError('service', String(x?.message || x)); }
+  return audio().decodeAudioData(unb64(r.audio));
+}
+function say(voice, text, e = engine()) {
+  const k = e + '|' + voice + '|' + text;
   if (!cache.has(k)) {
-    const p = api('/audio/speech', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: TTS_MODEL, voice, input: text, response_format: 'wav' }) })
-      .then((r) => r.arrayBuffer()).then((b) => audio().decodeAudioData(b)).then((b) => trim(b, audio()));
+    const p = synth(e, voice, text).then((b) => trim(b, audio()));
     p.catch(() => cache.delete(k));
     cache.set(k, p);
     if (cache.size > 60) cache.delete(cache.keys().next().value);
@@ -180,7 +245,8 @@ export async function speak(aid, text, { mid = null, voice, mascots = null } = {
     raf = requestAnimationFrame(bob);
   };
   try {
-    const pending = parts.map((p) => say(v, p)); // all requests go out at once; play in order
+    if (!canSpeak()) throw new VoiceError(engine() === 'groq' ? 'nokey' : 'setup');
+    const pending = engine().startsWith('local:') ? lazy(parts.map((p) => () => say(v, p))) : parts.map((p) => say(v, p)); // in order
     let at = 0;
     for (const p of pending) {
       const b = await p; if (stopped) return;
@@ -193,13 +259,19 @@ export async function speak(aid, text, { mid = null, voice, mascots = null } = {
   } catch (e) { if (!stopped) { end(); throw e; } }
 }
 
+// Made one after another, each starting when the one before is done: [promise-like getters].
+function lazy(makers) {
+  let chain = Promise.resolve();
+  return makers.map((m) => (chain = chain.then(m, m)));
+}
+
 // Read replies aloud when you talked to the agent (or always, per Settings).
 const lastVia = new Map(); // agent -> time you last talked to it out loud
 export const heardYou = (aid) => lastVia.set(aid, Date.now());
 export function autoRead(onError) {
   return on('message', ({ agent: aid, msg }) => {
     if (msg.from === 'me') { if (msg.via !== 'voice') lastVia.delete(aid); stopSpeaking(); return; }
-    if (msg.from !== 'agent' || !msg.text || msg.kind || !hasKey()) return;
+    if (msg.from !== 'agent' || !msg.text || msg.kind || !canSpeak()) return;
     const mode = readMode();
     if (mode === 'never' || (mode === 'talk' && !(Date.now() - (lastVia.get(aid) || 0) < 5 * 60e3))) return;
     speak(aid, msg.text, { mid: msg.mid }).catch((e) => onError?.(e));

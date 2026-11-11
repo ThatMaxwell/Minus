@@ -6,7 +6,7 @@ import { respond, choose, resolve } from '../brain.js';
 import { provider, PROVIDERS, STATUS } from '../data.js';
 import { ComputerSim } from '../../js/computer.js';
 import { openCreate } from './create.js';
-import { Listener, transcribe, hasKey, heardYou, speak, stopSpeaking, speaking, VoiceError } from '../voice.js';
+import { Listener, transcribe, hasKey, canSpeak, heardYou, speak, stopSpeaking, speaking, VoiceError } from '../voice.js';
 import { keySheet, connect } from './pages.js';
 import * as rt from '../runtime.js';
 import { musingHTML } from '../musing.js';
@@ -289,7 +289,7 @@ export function chat(main) {
     const b = e.target.closest('[data-say]'); if (!b) return;
     const node = b.closest('[data-mid]'), mid = node.dataset.mid;
     if (speaking()?.mid === mid) return stopSpeaking();
-    if (!hasKey()) return keySheet(() => b.click());
+    if (!canSpeak()) { toast('Choose a voice for your agents first', { icon: 'speaker' }); state.settings.setAt = 'voice'; save(); return go('settings'); }
     const m = (state.threads[a.id] || []).find((x) => x.mid === mid);
     if (m) speak(a.id, m.voice || m.text, { mid }).catch((err) => toast(err.human || 'Voice didn’t work this time.', { icon: 'speaker' }));
   });
