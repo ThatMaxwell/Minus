@@ -1154,7 +1154,7 @@ html.calm *, html.calm *::before { animation-play-state: paused !important; }
 .w-steps li .spin { margin-top: 3px; }
 .phone .cmp-chip:not(.cmp-model) span, .phone .cmp-model small { display: none; }
 .phone .cmp-chip { padding: 0 8px; } .phone .cmp-model { max-width: 150px; }
-.phone .composer { padding: 6px 10px 12px; }
+.phone .composer { padding-left: 10px; padding-right: 10px; }
 
 /* cloud computers */
 .pc-card.off .pc-thumb { opacity: .5; }
@@ -1169,3 +1169,9 @@ html.calm *, html.calm *::before { animation-play-state: paused !important; }
 .cl-form h3 { display: flex; align-items: center; gap: 10px; }
 .cl-form textarea.field { font-size: 12px; resize: vertical; }
 .cl-form .seg { margin-bottom: 4px; }
+/* phone header: the pill takes the room there is, and its status trims instead of running under the icons */
+.phone .ch-h .grow { display: none; }
+.phone .ch-pill { flex: 1 1 auto; min-width: 0; max-width: none; }
+.phone .ch-pill b { flex: none; }
+.phone .ch-pill .ch-status { min-width: 0; flex: 1; max-width: none; overflow: hidden; }
+.phone .ch-tools { flex: none; }
