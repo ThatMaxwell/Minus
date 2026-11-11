@@ -7,11 +7,8 @@
 // and an upper edge. Arcs, droopy lids and squints are all just different
 // edge curves, so any emotion morphs smoothly into any other.
 import * as THREE from 'three';
-import { radiusAt, hatRadiusAt, MEAN_R, EYE, EYE_COLOR, COLORS } from './shape.js';
-
-const DEPTH = 0.5, PILLOW = 2.3;
-const profile = (s) => DEPTH * Math.pow(Math.max(0, 1 - Math.pow(Math.min(s, 1), PILLOW)), 1 / PILLOW);
-const surfaceZ = (x, y) => profile(Math.hypot(x, y) / MEAN_R);
+import { radiusAt, MEAN_R, EYE, eyeColorFor, needsRim, RIM, COLORS, profile, surfaceZ } from './shape.js';
+import { HEAD, WRAPS } from './hats.js';
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -35,6 +32,16 @@ function bodyGeometry(lod = 'hi') {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setIndex(idx);
   return (BODY_GEO[lod] = g);
+}
+
+// A thin outline in the body's middle plane, where the body is widest: it only peeks out
+// around the edge, evenly, whichever way Minus turns. Used for near-black colors.
+let RIM_GEO = null;
+function rimGeometry() {
+  if (RIM_GEO) return RIM_GEO;
+  const s = new THREE.Shape(), N = 240;
+  for (let i = 0; i < N; i++) { const t = (i / N) * Math.PI * 2, r = radiusAt(t) + 0.035; i ? s.lineTo(Math.cos(t) * r, Math.sin(t) * r) : s.moveTo(Math.cos(t) * r, Math.sin(t) * r); }
+  return (RIM_GEO = new THREE.ShapeGeometry(s, 1));
 }
 
 // One WebGL context shared by every small and medium mascot on the page. Each mascot
@@ -139,38 +146,6 @@ const mesh = (geo, mat, pos = [0, 0, 0], rot = [0, 0, 0], scale = [1, 1, 1]) => 
   return m;
 };
 const group = (...items) => { const g = new THREE.Group(); items.forEach((i) => g.add(i)); return g; };
-// keep the part of a mesh on the side the normal points to
-const keep = (normal, point) => new THREE.Plane().setFromNormalAndCoplanarPoint(normal.clone().normalize(), point);
-
-// A shell of the head: the rounded head envelope, inflated by `add`, front/back puffed by `kz`.
-// Cut it with planes and you get hats and bands that actually fit.
-const SHELLS = new Map();
-function shellGeo(add, kz) {
-  const key = add + ':' + kz;
-  if (SHELLS.has(key)) return SHELLS.get(key);
-  const NT = 300, NP = 40, pos = [], idx = [];
-  for (let j = 0; j <= NP; j++) {
-    const v = j / NP, s = Math.sin(v * Math.PI), f = v <= 0.5 ? 1 : -1;
-    for (let i = 0; i <= NT; i++) {
-      const t = (i / NT) * Math.PI * 2, r = (hatRadiusAt(t) + add) * s;
-      pos.push(Math.cos(t) * r, Math.sin(t) * r, f * (profile(s) * kz + add * 0.6));
-    }
-  }
-  for (let j = 0; j < NP; j++) for (let i = 0; i < NT; i++) {
-    const a = j * (NT + 1) + i, b = a + NT + 1;
-    idx.push(a, b, a + 1, b, b + 1, a + 1);
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setIndex(idx);
-  SHELLS.set(key, g);
-  return g;
-}
-// z of a shell's front surface at (x, y), for placing decals on hats
-function shellZ(x, y, add, kz) {
-  const t = Math.atan2(y, x), s = Math.min(1, Math.hypot(x, y) / (hatRadiusAt(t) + add));
-  return profile(s) * kz + add * 0.6;
-}
 function roundedPoly(points, r) {
   const s = new THREE.Shape(), n = points.length;
   for (let i = 0; i < n; i++) {
@@ -183,343 +158,19 @@ function roundedPoly(points, r) {
   }
   return s;
 }
-const roundRect = (w, h, r) => roundedPoly([[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]], r);
 function starShape(n, R, r) {
   const s = new THREE.Shape();
   for (let i = 0; i < n * 2; i++) { const a = Math.PI / 2 + (i * Math.PI) / n, rr = i % 2 ? r : R; i ? s.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : s.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); }
   return s;
 }
-function ellipseShape(rx, ry) { const s = new THREE.Shape(); s.absellipse(0, 0, rx, ry, 0, Math.PI * 2, false, 0); return s; }
-function leafShape() {
-  const s = new THREE.Shape();
-  s.moveTo(0, 0); s.bezierCurveTo(0.12, 0.05, 0.2, 0.2, 0.0, 0.34); s.bezierCurveTo(-0.2, 0.2, -0.12, 0.05, 0, 0);
-  return new THREE.ShapeGeometry(s, 24);
-}
-// A tube that tapers from r0 to r1 along a curve.
-function taper(curve, r0, r1) {
-  const T = 40, R = 14, g = new THREE.TubeGeometry(curve, T, 1, R, false), p = g.attributes.position;
-  for (let i = 0; i <= T; i++) {
-    const c = curve.getPointAt(i / T), r = r0 + (r1 - r0) * (i / T);
-    for (let j = 0; j <= R; j++) {
-      const k = i * (R + 1) + j;
-      p.setXYZ(k, c.x + (p.getX(k) - c.x) * r, c.y + (p.getY(k) - c.y) * r, c.z + (p.getZ(k) - c.z) * r);
-    }
-  }
-  p.needsUpdate = true;
-  return g;
-}
-// A crown band whose top edge rises into rounded points.
-function crownGeo(R, base, peak, n) {
-  const N = 160, pos = [], idx = [];
-  for (let i = 0; i <= N; i++) {
-    const a = (i / N) * Math.PI * 2, f = ((a * n) / (Math.PI * 2)) % 1, tri = 1 - Math.abs(2 * f - 1);
-    const h = base + peak * Math.pow(tri * tri * (3 - 2 * tri), 1.6);
-    pos.push(Math.sin(a) * R, 0, Math.cos(a) * R, Math.sin(a) * R * 0.97, h, Math.cos(a) * R * 0.97);
-  }
-  for (let i = 0; i < N; i++) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setIndex(idx);
-  return g;
-}
-
 // Each cosmetic gets ctx: { body (the body material), clip(material, planes) }.
 export const COSMETICS = {
   none: null,
-  beanie: (ctx) => {
-    const n = V(0.1, 1, 0.05);
-    const knit = mesh(shellGeo(0.035, 1.12), flat('#e9a93a', { side: THREE.DoubleSide }));
-    ctx.clip(knit.material, [keep(n, V(0, 0.5, 0))]);
-    const band = mesh(shellGeo(0.065, 1.2), flat('#cf8c1f', { side: THREE.DoubleSide }));
-    ctx.clip(band.material, [keep(n, V(0, 0.46, 0)), keep(n.clone().negate(), V(0, 0.61, 0))]);
-    const pom = group(
-      mesh(new THREE.SphereGeometry(0.15, 32, 20), '#f4efe4'),
-      mesh(new THREE.SphereGeometry(0.1, 24, 16), '#e6dfcf', [0.05, -0.05, 0.08]),
-    );
-    pom.position.set(0.08, 1.14, 0);
-    return group(knit, band, pom);
-  },
-  cap: (ctx) => {
-    const n = V(0, 1, 0.28);
-    const dome = mesh(shellGeo(0.035, 1.12), flat('#33407a', { side: THREE.DoubleSide }));
-    ctx.clip(dome.material, [keep(n, V(0, 0.56, 0))]);
-    const brim = mesh(shellGeo(0.14, 1.4), flat('#252f5c', { side: THREE.DoubleSide }));
-    ctx.clip(brim.material, [keep(n, V(0, 0.43, 0)), keep(n.clone().negate(), V(0, 0.64, 0)), keep(V(0, 0, 1), V(0, 0, 0.26))]);
-    const button = mesh(new THREE.SphereGeometry(0.055, 20, 14), '#252f5c', [0, 1.05, 0]);
-    const logo = mesh(new THREE.ShapeGeometry(roundRect(0.2, 0.055, 0.027), 8), '#f3f2ee', [0, 0.78, shellZ(0, 0.78, 0.035, 1.12) + 0.01]);
-    logo.material.depthTest = false; logo.renderOrder = 4;
-    return group(dome, brim, button, logo);
-  },
-  headband: (ctx) => {
-    const n = V(-0.08, 1, 0);
-    const band = mesh(shellGeo(0.045, 1.16), flat('#e5484d', { side: THREE.DoubleSide }));
-    ctx.clip(band.material, [keep(n, V(0, 0.5, 0)), keep(n.clone().negate(), V(0, 0.65, 0))]);
-    const tail = new THREE.SphereGeometry(1, 24, 16);
-    const knot = group(
-      mesh(tail, '#c9383e', [0.16, 0.06, 0], [0, 0, 0.55], [0.2, 0.065, 0.04]),
-      mesh(tail, '#c9383e', [0.15, -0.08, 0], [0, 0, -0.35], [0.18, 0.06, 0.04]),
-      mesh(new THREE.SphereGeometry(0.075, 20, 14), '#e5484d'),
-    );
-    knot.position.set(0.98, 0.52, 0.08);
-    return group(band, knot);
-  },
-  crown: () => {
-    const geo = crownGeo(0.36, 0.13, 0.17, 5);
-    const g = group(
-      mesh(geo, flat('#f6c445', { side: THREE.FrontSide })),
-      mesh(geo, flat('#c9921d', { side: THREE.BackSide })),
-    );
-    for (let i = 0; i < 5; i++) {
-      const a = ((i + 0.5) / 5) * Math.PI * 2;
-      g.add(mesh(new THREE.SphereGeometry(0.035, 16, 12), '#fff2c2', [Math.sin(a) * 0.35, 0.31, Math.cos(a) * 0.35]));
-    }
-    g.add(mesh(new THREE.SphereGeometry(0.05, 20, 14), '#e5484d', [0, 0.07, 0.37], [0, 0, 0], [1, 1, 0.6]));
-    g.add(mesh(new THREE.SphereGeometry(0.036, 20, 14), '#4f92f6', [0.21, 0.07, 0.3], [0, 0, 0], [1, 1, 0.6]));
-    g.add(mesh(new THREE.SphereGeometry(0.036, 20, 14), '#4f92f6', [-0.21, 0.07, 0.3], [0, 0, 0], [1, 1, 0.6]));
-    g.position.set(0.02, 0.82, 0); g.rotation.set(0.12, 0, -0.1); g.scale.setScalar(1.18);
-    return g;
-  },
-  'cat ears': (ctx) => {
-    const ear = new THREE.ExtrudeGeometry(roundedPoly([[-0.21, 0], [0.21, 0], [0.02, 0.38]], 0.07), { depth: 0.08, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02, bevelSegments: 3, curveSegments: 10 });
-    const inner = new THREE.ShapeGeometry(roundedPoly([[-0.11, 0.04], [0.11, 0.04], [0.015, 0.25]], 0.045), 10);
-    const one = (s) => {
-      const g = group(mesh(ear, ctx.body, [0, 0, -0.04]), mesh(inner, '#ff9fb4', [0, 0.02, 0.065]));
-      g.position.set(s * 0.5, 0.7, 0.02); g.rotation.z = -s * 0.42; g.scale.set(-s, 1, 1);
-      return g;
-    };
-    return group(one(-1), one(1));
-  },
-  antenna: () => {
-    const curve = new THREE.QuadraticBezierCurve3(V(0, 0, 0), V(0.02, 0.32, 0), V(0.17, 0.52, 0));
-    const g = group(
-      mesh(taper(curve, 0.04, 0.024), '#2b2b31'),
-      mesh(new THREE.SphereGeometry(0.105, 28, 18), '#5fcfa6', [0.17, 0.56, 0]),
-      mesh(new THREE.SphereGeometry(0.05, 20, 14), '#7fe0bd', [0.13, 0.6, 0.06]),
-    );
-    g.position.set(0, 0.9, 0); g.userData.sway = 0.08; return g;
-  },
-  headphones: () => {
-    const dark = '#2b2b31';
-    const band = mesh(new THREE.TorusGeometry(1.07, 0.06, 16, 80, Math.PI), dark, [0, 0, 0], [0, 0, 0], [1, 1, 1.8]);
-    const pad = mesh(new THREE.TorusGeometry(1.0, 0.035, 12, 60, Math.PI * 0.5), '#3d3d45', [0, 0, 0], [0, 0, Math.PI * 0.25], [1, 1, 2.2]);
-    const cup = (s) => group(
-      mesh(new THREE.SphereGeometry(0.29, 32, 20), dark, [0, 0, 0], [0, 0, 0], [0.55, 1, 1]),
-      mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.03, 40), '#5fcfa6', [s * 0.15, 0, 0], [0, 0, Math.PI / 2]),
-    );
-    const l = cup(-1), r = cup(1);
-    l.position.set(-1.06, -0.02, 0); r.position.set(1.06, -0.02, 0);
-    const g = group(band, pad, l, r); g.position.y = 0.04; return g;
-  },
-  'party hat': () => {
-    const H = 0.95, R = 0.38, rAt = (y) => R * (1 - y / H), stops = [0, 0.28, 0.5, 0.7, H];
-    const g = group();
-    for (let i = 0; i < stops.length - 1; i++) {
-      const y0 = stops[i], y1 = stops[i + 1];
-      g.add(mesh(new THREE.CylinderGeometry(Math.max(rAt(y1), 0.001), rAt(y0), y1 - y0, 48), i % 2 ? '#ffd25e' : '#ff6b8f', [0, (y0 + y1) / 2, 0]));
-    }
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * Math.PI * 2;
-      g.add(mesh(new THREE.SphereGeometry(0.06, 16, 12), '#fff4e0', [Math.sin(a) * R, 0.01, Math.cos(a) * R]));
-    }
-    g.add(mesh(new THREE.SphereGeometry(0.09, 24, 16), '#fff4e0', [0, H + 0.04, 0]));
-    g.position.set(0.12, 0.8, 0); g.rotation.z = -0.24;
-    return g;
-  },
-  shades: () => {
-    const lens = new THREE.ShapeGeometry(roundRect(0.36, 0.24, 0.1), 12);
-    const g = group(
-      mesh(lens, '#141417', [-0.21, 0, 0]), mesh(lens, '#141417', [0.21, 0, 0]),
-      mesh(new THREE.PlaneGeometry(0.1, 0.045), '#141417', [0, 0.04, 0]),
-      mesh(new THREE.PlaneGeometry(0.05, 0.13), '#3a3a42', [-0.28, 0.02, 0.002], [0, 0, -0.6]),
-      mesh(new THREE.PlaneGeometry(0.05, 0.13), '#3a3a42', [0.14, 0.02, 0.002], [0, 0, -0.6]),
-    );
-    g.traverse((m) => { if (m.material) { m.material.depthTest = false; m.renderOrder = 4; } });
-    g.position.set(0, 0.6, 0.47); g.rotation.x = -0.3; g.scale.setScalar(1.05); return g;
-  },
-  bow: () => {
-    const pink = '#ff6b8f', wing = new THREE.ConeGeometry(0.15, 0.3, 32);
-    const g = group(
-      mesh(wing, pink, [-0.15, 0, 0], [0, 0, -Math.PI / 2]), mesh(wing, pink, [0.15, 0, 0], [0, 0, Math.PI / 2]),
-      mesh(new THREE.SphereGeometry(0.075, 20, 14), '#e2507a', [0, 0, 0.02]),
-    );
-    g.traverse((m) => { if (m.material) { m.material.depthTest = false; m.renderOrder = 4; } });
-    g.position.set(0.56, 0.74, 0.3); g.rotation.z = -0.5; g.scale.setScalar(1.15); return g;
-  },
-  sprout: () => {
-    const g = group(
-      mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.26, 12), '#3f9a52', [0, 0.13, 0]),
-      mesh(leafShape(), '#5fcf6a', [0, 0.24, 0], [0, 0, -0.95]),
-      mesh(leafShape(), '#4ab35a', [0, 0.24, 0.001], [0, 0, 0.95], [0.85, 0.85, 1]),
-    );
-    g.position.set(0, 0.9, 0.02); g.userData.sway = 0.12; return g;
-  },
-  /* ───── more hats ───── */
-  'top hat': () => {
-    const g = group(
-      mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.045, 48), '#283058', [0, 0, 0], [0, 0, 0], [1, 1, 0.7]),
-      mesh(new THREE.CylinderGeometry(0.3, 0.32, 0.56, 48), '#323b6b', [0, 0.3, 0], [0, 0, 0], [1, 1, 0.8]),
-      mesh(new THREE.CylinderGeometry(0.327, 0.334, 0.11, 48), '#e5484d', [0, 0.08, 0], [0, 0, 0], [1, 1, 0.8]),
-    );
-    g.position.set(0.06, 0.9, 0); g.rotation.z = -0.13; return g;
-  },
-  'wizard hat': () => {
-    const H = 1.05, cone = mesh(new THREE.ConeGeometry(0.42, H, 48), '#5b4bd6', [0, H / 2, 0], [0, 0, 0], [1, 1, 0.8]);
-    const star = new THREE.ShapeGeometry(starShape(5, 0.09, 0.04), 1);
-    const st1 = mesh(star, '#ffd25e', [0.06, 0.3, 0.27]), st2 = mesh(star, '#ffd25e', [-0.1, 0.56, 0.17], [0, 0, 0.4], [0.7, 0.7, 1]);
-    const g = group(mesh(new THREE.CylinderGeometry(0.66, 0.66, 0.035, 56), '#4a3cb8', [0, 0, 0], [0, 0, 0], [1, 1, 0.62]), cone, st1, st2);
-    g.position.set(0.05, 0.88, 0); g.rotation.z = -0.12; return g;
-  },
-  'chef hat': () => {
-    const puff = new THREE.SphereGeometry(0.24, 28, 18), w = '#ffffff';
-    const g = group(
-      mesh(new THREE.CylinderGeometry(0.36, 0.37, 0.22, 48), '#e4e0d6', [0, 0.1, 0], [0, 0, 0], [1, 1, 0.8]),
-      mesh(puff, w, [-0.2, 0.36, 0], [0, 0, 0], [1, 1, 0.8]), mesh(puff, w, [0.2, 0.36, 0], [0, 0, 0], [1, 1, 0.8]),
-      mesh(puff, w, [0, 0.44, 0], [0, 0, 0], [1.15, 1.1, 0.85]),
-    );
-    g.position.set(0, 0.86, 0); return g;
-  },
-  'bucket hat': (ctx) => {
-    const dome = mesh(shellGeo(0.035, 1.12), flat('#d9c7a1', { side: THREE.DoubleSide }));
-    ctx.clip(dome.material, [keep(V(0, 1, 0), V(0, 0.52, 0))]);
-    const brim = mesh(new THREE.CylinderGeometry(0.98, 1.2, 0.17, 64, 1, true), flat('#c3ae85', { side: THREE.DoubleSide }), [0, 0.47, 0], [0, 0, 0], [1, 1, 0.56]);
-    return group(dome, brim);
-  },
-  'cowboy hat': () => {
-    const brim = mesh(new THREE.CylinderGeometry(0.98, 0.98, 0.04, 64), '#8f5730', [0, 0, 0], [0, 0, 0], [1, 1, 0.56]);
-    const lip = (s) => mesh(new THREE.SphereGeometry(0.28, 24, 14), '#8f5730', [s * 0.82, 0.07, 0], [0, 0, s * 0.5], [1, 0.35, 1.5]);
-    const g = group(brim, lip(-1), lip(1),
-      mesh(new THREE.CylinderGeometry(0.31, 0.38, 0.38, 48), '#a8693a', [0, 0.21, 0], [0, 0, 0], [1, 1, 0.8]),
-      mesh(new THREE.SphereGeometry(0.31, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), '#a8693a', [0, 0.39, 0], [0, 0, 0], [1, 0.45, 0.8]),
-      mesh(new THREE.CylinderGeometry(0.385, 0.39, 0.08, 48), '#3b2416', [0, 0.06, 0], [0, 0, 0], [1, 1, 0.8]),
-    );
-    g.position.set(0, 0.84, 0); g.rotation.z = 0.08; return g;
-  },
-  'viking helmet': (ctx) => {
-    const dome = mesh(shellGeo(0.045, 1.15), flat('#a3acb6', { side: THREE.DoubleSide }));
-    ctx.clip(dome.material, [keep(V(0, 1, 0), V(0, 0.5, 0))]);
-    const rim = mesh(shellGeo(0.07, 1.2), flat('#7f8892', { side: THREE.DoubleSide }));
-    ctx.clip(rim.material, [keep(V(0, 1, 0), V(0, 0.46, 0)), keep(V(0, -1, 0), V(0, 0.57, 0))]);
-    const horn = (s) => mesh(taper(new THREE.QuadraticBezierCurve3(V(s * 0.66, 0.74, 0), V(s * 1.08, 0.86, 0), V(s * 1.04, 1.32, 0)), 0.12, 0.018), '#efe6d2');
-    return group(dome, rim, horn(-1), horn(1));
-  },
-  'hard hat': (ctx) => {
-    const dome = mesh(shellGeo(0.045, 1.15), flat('#f5c03a', { side: THREE.DoubleSide }));
-    ctx.clip(dome.material, [keep(V(0, 1, 0.12), V(0, 0.52, 0))]);
-    const brim = mesh(shellGeo(0.12, 1.32), flat('#d9a226', { side: THREE.DoubleSide }));
-    ctx.clip(brim.material, [keep(V(0, 1, 0.12), V(0, 0.45, 0)), keep(V(0, -1, -0.12), V(0, 0.56, 0))]);
-    const ridge = mesh(new THREE.TorusGeometry(0.5, 0.045, 12, 40, Math.PI * 0.62), '#e3ae2c', [0, 0.52, 0], [0, Math.PI / 2, Math.PI * 0.19]);
-    return group(dome, brim, ridge);
-  },
-  'grad cap': () => {
-    const gold = '#f5c03a';
-    const board = mesh(new THREE.BoxGeometry(0.92, 0.045, 0.92), '#3a3f57', [0, 0.2, 0], [0.42, Math.PI / 4, 0]);
-    board.add(mesh(new THREE.BoxGeometry(0.9, 0.01, 0.9), '#474d68', [0, 0.024, 0]));
-    const skull = mesh(new THREE.CylinderGeometry(0.33, 0.38, 0.2, 40), '#2f3449', [0, 0.08, 0], [0, 0, 0], [1, 1, 0.8]);
-    const tassel = mesh(taper(new THREE.QuadraticBezierCurve3(V(0, 0.24, 0), V(0.38, 0.26, 0.1), V(0.46, -0.02, 0.18)), 0.016, 0.016), gold);
-    const end = mesh(new THREE.ConeGeometry(0.05, 0.14, 16), gold, [0.46, -0.06, 0.18]);
-    const g = group(skull, board, mesh(new THREE.SphereGeometry(0.04, 16, 12), gold, [0, 0.24, 0]), tassel, end);
-    g.position.set(0, 0.86, 0); g.rotation.z = -0.06; return g;
-  },
-  'propeller cap': (ctx) => {
-    const dome = mesh(shellGeo(0.035, 1.12), flat('#4f92f6', { side: THREE.DoubleSide }));
-    ctx.clip(dome.material, [keep(V(0, 1, 0), V(0, 0.6, 0))]);
-    const band = mesh(shellGeo(0.06, 1.18), flat('#ffd25e', { side: THREE.DoubleSide }));
-    ctx.clip(band.material, [keep(V(0, 1, 0), V(0, 0.56, 0)), keep(V(0, -1, 0), V(0, 0.66, 0))]);
-    const blade = new THREE.SphereGeometry(1, 20, 10);
-    const prop = group(mesh(blade, '#e5484d', [0.2, 0, 0], [0, 0, 0], [0.22, 0.03, 0.07]), mesh(blade, '#e5484d', [-0.2, 0, 0], [0, 0, 0], [0.22, 0.03, 0.07]),
-      mesh(new THREE.SphereGeometry(0.045, 16, 12), '#ffd25e'));
-    prop.position.y = 1.2; prop.userData.spin = 9;
-    return group(dome, band, mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.2, 10), '#2b2b31', [0, 1.1, 0]), prop);
-  },
-  visor: (ctx) => {
-    const n = V(0, 1, 0.2);
-    const band = mesh(shellGeo(0.045, 1.16), flat('#4fbf98', { side: THREE.DoubleSide }));
-    ctx.clip(band.material, [keep(n, V(0, 0.5, 0)), keep(n.clone().negate(), V(0, 0.63, 0))]);
-    const brim = mesh(shellGeo(0.15, 1.42), flat('#3a9f7c', { side: THREE.DoubleSide }));
-    ctx.clip(brim.material, [keep(n, V(0, 0.42, 0)), keep(n.clone().negate(), V(0, 0.56, 0)), keep(V(0, 0, 1), V(0, 0, 0.2))]);
-    return group(band, brim);
-  },
-  'santa hat': () => {
-    const curve = new THREE.CatmullRomCurve3([V(0, 0, 0), V(0.04, 0.3, 0), V(0.2, 0.52, 0), V(0.46, 0.5, 0), V(0.6, 0.36, 0)]);
-    const g = group(
-      mesh(taper(curve, 0.42, 0.04), '#e5484d', [0, 0, 0], [0, 0, 0], [1, 1, 0.8]),
-      mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.16, 48), '#f6f3ec', [0, 0.02, 0], [0, 0, 0], [1, 1, 0.82]),
-      mesh(new THREE.SphereGeometry(0.12, 24, 16), '#f6f3ec', [0.62, 0.32, 0]),
-    );
-    g.position.set(0, 0.84, 0); return g;
-  },
-  goggles: (ctx) => {
-    const strap = mesh(shellGeo(0.04, 1.14), flat('#2b2b31', { side: THREE.DoubleSide }));
-    ctx.clip(strap.material, [keep(V(0, 1, 0), V(0, 0.55, 0)), keep(V(0, -1, 0), V(0, 0.64, 0))]);
-    const lens = (s) => group(
-      mesh(new THREE.CylinderGeometry(0.17, 0.19, 0.12, 36), '#3a3a42', [0, 0, 0], [Math.PI / 2, 0, 0]),
-      mesh(new THREE.CircleGeometry(0.13, 36), '#8fd0ff', [0, 0, 0.062]),
-      mesh(new THREE.CircleGeometry(0.045, 20), '#d6eeff', [-0.05, 0.05, 0.064]),
-    );
-    const l = lens(-1), r = lens(1);
-    const z = surfaceZ(0.22, 0.6) + 0.07;
-    l.position.set(-0.22, 0.6, z); r.position.set(0.22, 0.6, z);
-    l.rotation.x = r.rotation.x = -0.35;
-    return group(strap, l, r);
-  },
-  headset: () => {
-    const g = COSMETICS.headphones();
-    g.add(mesh(taper(new THREE.QuadraticBezierCurve3(V(-1.06, -0.06, 0.12), V(-0.95, -0.55, 0.4), V(-0.42, -0.5, 0.5)), 0.03, 0.025), '#2b2b31'));
-    g.add(mesh(new THREE.SphereGeometry(0.07, 20, 14), '#2b2b31', [-0.4, -0.5, 0.5], [0, 0, 0], [1.3, 1, 1]));
-    return g;
-  },
-  earmuffs: () => {
-    const band = mesh(new THREE.TorusGeometry(1.06, 0.04, 12, 64, Math.PI), '#e5484d', [0, 0.04, 0], [0, 0, 0], [1, 1, 1.6]);
-    const muff = (s) => mesh(new THREE.SphereGeometry(0.3, 28, 18), '#ffb3c7', [s * 1.04, 0.0, 0], [0, 0, 0], [0.7, 1, 1]);
-    return group(band, muff(-1), muff(1));
-  },
-  'bunny ears': (ctx) => {
-    const ear = new THREE.ExtrudeGeometry(ellipseShape(0.13, 0.4), { depth: 0.07, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02, bevelSegments: 3, curveSegments: 20 });
-    const inner = new THREE.ShapeGeometry(ellipseShape(0.07, 0.3), 20);
-    const one = (s) => {
-      const g = group(mesh(ear, ctx.body, [0, 0.4, -0.035]), mesh(inner, '#ff9fb4', [0, 0.42, 0.06]));
-      g.position.set(s * 0.26, 0.78, 0); g.rotation.z = -s * 0.16;
-      return g;
-    };
-    const r = one(1); r.rotation.z = -0.5;
-    return group(one(-1), r);
-  },
-  'bear ears': (ctx) => {
-    const one = (s) => {
-      const g = group(mesh(new THREE.SphereGeometry(0.21, 28, 18), ctx.body, [0, 0, 0], [0, 0, 0], [1, 1, 0.55]),
-        mesh(new THREE.CircleGeometry(0.12, 28), flat('#000000', { transparent: true, opacity: 0.16 }), [0, 0.0, 0.12]));
-      g.position.set(s * 0.55, 0.82, 0.02);
-      return g;
-    };
-    return group(one(-1), one(1));
-  },
-  'devil horns': () => {
-    const horn = (s) => mesh(taper(new THREE.QuadraticBezierCurve3(V(s * 0.3, 0.86, 0.05), V(s * 0.38, 1.04, 0.05), V(s * 0.5, 1.12, 0.05)), 0.085, 0.012), '#e0443e');
-    return group(horn(-1), horn(1));
-  },
-  curl: () => {
-    const curve = new THREE.CatmullRomCurve3([V(0, 0.9, 0), V(0.01, 1.08, 0), V(0.1, 1.2, 0), V(0.21, 1.18, 0), V(0.22, 1.08, 0), V(0.13, 1.05, 0)]);
-    const g = group(mesh(taper(curve, 0.075, 0.03), '#2b2b31'));
-    g.scale.setScalar(1.5); g.position.set(0, -0.48, 0); g.userData.sway = 0.05; return g;
-  },
-  flower: () => {
-    const petal = new THREE.SphereGeometry(0.075, 20, 12), g = group();
-    for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2; g.add(mesh(petal, '#ff8fb1', [Math.cos(a) * 0.085, Math.sin(a) * 0.085, 0], [0, 0, 0], [1, 1, 0.4])); }
-    g.add(mesh(new THREE.SphereGeometry(0.055, 20, 12), '#ffd25e', [0, 0, 0.02], [0, 0, 0], [1, 1, 0.5]));
-    g.traverse((m) => { if (m.material) { m.material.depthTest = false; m.renderOrder = 4; m.userData.face = true; } });
-    g.position.set(-0.6, 0.72, 0.3); g.scale.setScalar(1.25); return g;
-  },
+  ...HEAD,
+  ...WRAPS,
 
   /* ───── face ───── */
-  eyepatch: (ctx) => {
-    const strap = mesh(shellGeo(0.03, 1.12), flat('#26262b', { side: THREE.DoubleSide }));
-    const n = V(0.45, 1, 0);
-    ctx.clip(strap.material, [keep(n, V(0, 0.15, 0)), keep(n.clone().negate(), V(0, 0.23, 0))]);
-    const x = EYE.gap, y = EYE.y;
-    const patch = mesh(new THREE.ShapeGeometry(ellipseShape(0.32, 0.3), 32), flat('#16161a', { depthTest: false }), [x, y, surfaceZ(x, y) + 0.03]);
-    patch.renderOrder = 5; patch.userData.face = true;
-    return group(strap, patch);
-  },
+
   mustache: () => {
     const s = new THREE.Shape();
     s.moveTo(0, 0.02);
@@ -558,15 +209,7 @@ export const COSMETICS = {
     g.traverse((m) => { if (m.material) { m.renderOrder = 5; m.userData.face = true; } }); knot.renderOrder = 6;
     g.position.set(0, -0.4, surfaceZ(0, -0.4) + 0.03); g.scale.setScalar(1.55); return g;
   },
-  scarf: (ctx) => {
-    const wrap = mesh(shellGeo(0.06, 1.2), flat('#e5484d', { side: THREE.DoubleSide }));
-    ctx.clip(wrap.material, [keep(V(0, 1, 0), V(0, -0.66, 0)), keep(V(0, -1, 0), V(0, -0.38, 0))]);
-    const stripe = mesh(shellGeo(0.07, 1.22), flat('#f6f3ec', { side: THREE.DoubleSide }));
-    ctx.clip(stripe.material, [keep(V(0, 1, 0), V(0, -0.56, 0)), keep(V(0, -1, 0), V(0, -0.49, 0))]);
-    const tail = mesh(new THREE.ShapeGeometry(roundedPoly([[-0.08, 0], [0.08, 0], [0.11, -0.36], [-0.05, -0.36]], 0.03), 6), flat('#c93a3f', { depthTest: false }), [0.34, -0.56, surfaceZ(0.34, -0.56) + 0.08], [0, 0, 0.12]);
-    tail.renderOrder = 5; tail.userData.face = true;
-    return group(wrap, stripe, tail);
-  },
+
   pearls: () => {
     const g = group(), bead = new THREE.SphereGeometry(0.045, 16, 12);
     for (let i = 0; i <= 10; i++) {
@@ -575,14 +218,7 @@ export const COSMETICS = {
     }
     return g;
   },
-  bell: (ctx) => {
-    const collar = mesh(shellGeo(0.045, 1.16), flat('#e5484d', { side: THREE.DoubleSide }));
-    ctx.clip(collar.material, [keep(V(0, 1, 0), V(0, -0.64, 0)), keep(V(0, -1, 0), V(0, -0.5, 0))]);
-    const z = surfaceZ(0, -0.72) + 0.1;
-    const b = group(mesh(new THREE.SphereGeometry(0.13, 24, 16), '#f6c445'), mesh(new THREE.BoxGeometry(0.15, 0.022, 0.02), '#9a7414', [0, -0.04, 0.125]), mesh(new THREE.SphereGeometry(0.05, 16, 12), '#ffe18a', [-0.05, 0.05, 0.08]));
-    b.position.set(0, -0.72, z);
-    return group(collar, b);
-  },
+
   medal: () => {
     const ribbon = (s) => mesh(new THREE.PlaneGeometry(0.07, 0.24), flat('#4f92f6', { depthTest: false }), [s * 0.05, 0.1, 0], [0, 0, s * 0.35]);
     const g = group(ribbon(-1), ribbon(1),
@@ -718,11 +354,14 @@ export class Mascot3D {
     this.camera = new THREE.PerspectiveCamera(14, 1, 0.1, 100);
     this.baseColor = new THREE.Color(color);
     this.bodyMat = new THREE.MeshBasicMaterial({ color });
-    this.eyeMat = new THREE.MeshBasicMaterial({ color: EYE_COLOR, side: THREE.DoubleSide, depthTest: false });
+    this.eyeMat = new THREE.MeshBasicMaterial({ color: eyeColorFor('#' + this.baseColor.getHexString()), side: THREE.DoubleSide, depthTest: false });
     this.rig = new THREE.Group(); this.head = new THREE.Group();
     this.rig.add(this.head); this.scene.add(this.rig);
     this.body = new THREE.Mesh(bodyGeometry(shared && (canvas.clientWidth || 99) < 72 ? 'lo' : 'hi'), this.bodyMat);
     this.head.add(this.body);
+    this.rim = new THREE.Mesh(rimGeometry(), new THREE.MeshBasicMaterial({ color: RIM, side: THREE.DoubleSide }));
+    this.rim.renderOrder = -1;
+    this.rim.visible = needsRim('#' + this.baseColor.getHexString()); this.head.add(this.rim);
     this.eyes = [new Eye(-1, this.eyeMat), new Eye(1, this.eyeMat)];
     this.eyes.forEach((e) => this.head.add(e.mesh));
 
@@ -783,7 +422,7 @@ export class Mascot3D {
   }
 
   /* ───────── identity ───────── */
-  setColor(c) { this.baseColor.set(c); }
+  setColor(c) { this.baseColor.set(c); const hex = '#' + this.baseColor.getHexString(); this.eyeMat.color.set(eyeColorFor(hex)); this.rim.visible = needsRim(hex); }
   setIdleStyle(s) { this.idleStyle = IDLES[s] ? s : 'calm'; }
   setScale(s, instant = false) { this.pop.target = s; if (instant) { this.pop.x = s; this.pop.v = 0; } }
   setEmotion(name, snap = false) {
@@ -1110,6 +749,7 @@ export class Mascot3D {
     const rg = this.rig, hd = this.head;
     c.translate(rg.position.x, rg.position.y); c.rotate(rg.rotation.z); c.scale(rg.scale.x * Math.max(0.15, Math.abs(Math.cos(rg.rotation.y))), rg.scale.y);
     c.translate(hd.position.x, hd.position.y);
+    if (this.rim.visible) { c.save(); c.strokeStyle = RIM; c.lineWidth = 0.07; c.stroke(bodyPath2D()); c.restore(); }
     c.fillStyle = '#' + this.bodyMat.color.getHexString();
     c.fill(bodyPath2D());
     if (!this.facing) return;

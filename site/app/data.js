@@ -3,12 +3,19 @@
 import { COLORS } from '../js/shape.js';
 
 export const PALETTE = [
-  { id: 'cloud', name: 'Cloud', hex: COLORS.cloud }, { id: 'mint', name: 'Mint', hex: COLORS.mint },
-  { id: 'sky', name: 'Sky', hex: COLORS.sky }, { id: 'violet', name: 'Violet', hex: COLORS.violet },
-  { id: 'rose', name: 'Rose', hex: COLORS.rose }, { id: 'coral', name: 'Coral', hex: COLORS.coral },
-  { id: 'amber', name: 'Amber', hex: COLORS.amber }, { id: 'lime', name: 'Lime', hex: '#a9d65c' },
-  { id: 'teal', name: 'Teal', hex: '#39b8c4' }, { id: 'lilac', name: 'Lilac', hex: '#c39af0' },
-  { id: 'peach', name: 'Peach', hex: '#ffb38a' }, { id: 'slate', name: 'Slate', hex: '#8c93a8' },
+  { id: 'cloud', name: 'Cloud', hex: COLORS.cloud }, { id: 'stone', name: 'Stone', hex: '#b8b5ac' }, { id: 'slate', name: 'Slate', hex: '#8c93a8' },
+  { id: 'charcoal', name: 'Charcoal', hex: '#3a3a42' }, { id: 'black', name: 'Black', hex: '#17171a' }, { id: 'sand', name: 'Sand', hex: '#e8d3aa' },
+  { id: 'cocoa', name: 'Cocoa', hex: '#a87a5c' }, { id: 'brick', name: 'Brick', hex: '#b8483d' }, { id: 'cherry', name: 'Cherry', hex: '#ef5a5f' },
+  { id: 'coral', name: 'Coral', hex: COLORS.coral }, { id: 'tangerine', name: 'Tangerine', hex: '#ff8a3d' }, { id: 'peach', name: 'Peach', hex: '#ffb38a' },
+  { id: 'amber', name: 'Amber', hex: COLORS.amber }, { id: 'gold', name: 'Gold', hex: '#e3b53b' }, { id: 'lemon', name: 'Lemon', hex: '#f6d24a' },
+  { id: 'butter', name: 'Butter', hex: '#fff0a6' }, { id: 'lime', name: 'Lime', hex: '#a9d65c' }, { id: 'moss', name: 'Moss', hex: '#8fa65a' },
+  { id: 'grass', name: 'Grass', hex: '#6cc870' }, { id: 'forest', name: 'Forest', hex: '#2f7d55' }, { id: 'mint', name: 'Mint', hex: COLORS.mint },
+  { id: 'seafoam', name: 'Seafoam', hex: '#9be3c8' }, { id: 'sage', name: 'Sage', hex: '#a7caa9' }, { id: 'teal', name: 'Teal', hex: '#39b8c4' },
+  { id: 'aqua', name: 'Aqua', hex: '#64d6e2' }, { id: 'ice', name: 'Ice', hex: '#cfe7f3' }, { id: 'sky', name: 'Sky', hex: COLORS.sky },
+  { id: 'denim', name: 'Denim', hex: '#5b7fc7' }, { id: 'midnight', name: 'Midnight', hex: '#2b3560' }, { id: 'violet', name: 'Violet', hex: COLORS.violet },
+  { id: 'lavender', name: 'Lavender', hex: '#d9ceff' }, { id: 'lilac', name: 'Lilac', hex: '#c39af0' }, { id: 'grape', name: 'Grape', hex: '#a35bd8' },
+  { id: 'plum', name: 'Plum', hex: '#6e3d80' }, { id: 'mauve', name: 'Mauve', hex: '#c48aa8' }, { id: 'bubblegum', name: 'Bubblegum', hex: '#ff7ac6' },
+  { id: 'rose', name: 'Rose', hex: COLORS.rose }, { id: 'blush', name: 'Blush', hex: '#f9c9d5' },
 ];
 
 const ICONS = {

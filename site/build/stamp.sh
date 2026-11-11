@@ -5,7 +5,7 @@ set -euo pipefail
 OUT="$1"; V="$2"
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 rm -rf "$OUT"; mkdir -p "$OUT"
-cp -r "$SRC/index.html" "$SRC/lab.html" "$SRC/test.html" "$SRC/dock.html" "$SRC/ghost.html" "$SRC/pair.html" "$SRC/css" "$SRC/js" "$SRC/app" "$SRC/vendor" "$OUT/"
+cp -r "$SRC/index.html" "$SRC/auth.html" "$SRC/lab.html" "$SRC/test.html" "$SRC/dock.html" "$SRC/ghost.html" "$SRC/pair.html" "$SRC/css" "$SRC/js" "$SRC/app" "$SRC/vendor" "$OUT/"
 touch "$OUT/.nojekyll"
 # index.html: <link href="css/..">, <script src="js/.."|"vendor/..">, and the three.js import map entry
 for f in index.html lab.html test.html dock.html ghost.html pair.html; do sed -i -E "s#(href|src)=\"(css|js|vendor|app)/([^\"?]+)\"#\1=\"\2/\3?v=$V\"#g" "$OUT/$f"; done
