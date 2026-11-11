@@ -81,8 +81,9 @@ const specOf = (a) => ({
   skills: (a.skills || []).map((s) => ({ id: s.id, name: s.name, about: s.about || '', steps: s.steps })),
   team: state.agents.filter((x) => x.id !== a.id && x.status !== 'off').map((x) => [x.name, x.role || '']),
 });
-const brainOf = (a) => { const eng = ENGINES[a.model], ps = providerState(a.model) || {}; return { provider: eng.provider, slot: a.model, model: ps.modelId || eng.model, effort: a.effort || 'medium', base_url: ps.baseUrl || null }; };
-export const modelOf = (a) => (providerState(a.model) || {}).modelId || ENGINES[a.model]?.model;
+// Each agent can pick its own model for each AI (a.pick); otherwise the AI's default.
+export const modelOf = (a) => (a.pick || {})[a.model] || (providerState(a.model) || {}).modelId || ENGINES[a.model]?.model;
+const brainOf = (a) => { const eng = ENGINES[a.model], ps = providerState(a.model) || {}; return { provider: eng.provider, slot: a.model, model: modelOf(a), effort: a.effort || 'medium', base_url: ps.baseUrl || null }; };
 
 /** Ask the room: this agent's answer, with its own AI and no tools. */
 export async function roomAnswer(a, question, others = [], round = 1) {
@@ -180,14 +181,14 @@ export function listen() {
         const sk = pendingRun.get(aid); pendingRun.delete(aid);
         // with no computer to use, it's a conversation: it types, then answers (no work card)
         if (!caps.computer && !sk) {
-          live.set(aid, { mid: null, steps: [], usage: { input: 0, output: 0, cacheRead: 0 }, model: (providerState(a.model) || {}).modelId || ENGINES[a.model]?.model });
+          live.set(aid, { mid: null, steps: [], usage: { input: 0, output: 0, cacheRead: 0 }, model: modelOf(a) });
           updateAgent(aid, { status: 'working', statusText: 'Thinking…' });
           emit('typing', { agent: aid, on: true });
           react(aid, 'thinking');
           break;
         }
         const m = post(aid, { from: 'agent', kind: 'steps', title: sk ? `Doing “${sk.name}”` : `Working on ${comp}`, live: true, total: sk ? sk.steps.length : null, done: 0, steps: [], skill: !!sk });
-        live.set(aid, { mid: m.mid, steps: [], usage: { input: 0, output: 0, cacheRead: 0 }, model: (providerState(a.model) || {}).modelId || ENGINES[a.model]?.model });
+        live.set(aid, { mid: m.mid, steps: [], usage: { input: 0, output: 0, cacheRead: 0 }, model: modelOf(a) });
         updateAgent(aid, { status: 'working', statusText: 'Starting' });
         react(aid, 'working', document.querySelector('.pc-panel'));
         emit('work', { agent: aid, on: true });

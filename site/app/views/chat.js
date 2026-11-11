@@ -10,6 +10,7 @@ import { Listener, transcribe, hasKey, heardYou, speak, stopSpeaking, speaking, 
 import { keySheet, connect } from './pages.js';
 import * as rt from '../runtime.js';
 import { musingHTML } from '../musing.js';
+import { pickModel, prettyModel } from './modelpick.js';
 
 // While it's thinking (not on a named step), the agent's status is a word that keeps changing.
 const GENERIC = /^(Thinking…|Starting|Writing…|Working)$/;
@@ -46,7 +47,7 @@ export function chat(main) {
           </div>
         </div>
         <div class="ch-brain">
-          <button class="ch-seg" data-act="model" data-tip="Which AI ${esc(a.name)} thinks with">${prov.icon}<span>${esc(prov.name)}</span>${rt.modelOf(a) ? `<small>${esc(String(rt.modelOf(a)).split('/').pop())}</small>` : ''}${icon('chevron', 'rot')}</button>
+          <button class="ch-seg" data-act="model" data-tip="Which AI ${esc(a.name)} thinks with">${prov.icon}<span>${esc(prov.name)}</span>${rt.modelOf(a) ? `<small>${esc(prettyModel(rt.modelOf(a)))}</small>` : ''}${icon('chevron', 'rot')}</button>
           <i class="ch-div"></i>
           <button class="ch-seg" data-act="computer" data-tip="Which computer ${esc(a.name)} works on">${icon(comp?.kind === 'local' ? 'laptop' : 'cloud')}<span>${esc(comp?.name || 'No computer')}</span>${icon('chevron', 'rot')}</button>
         </div>
@@ -378,8 +379,7 @@ export function chat(main) {
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act;
     if (act === 'model') {
-      return menu(b, PROVIDERS.filter((p) => providerState(p.id)?.connected).map((p) => ({ label: p.name, checked: p.id === a.model, svg: p.icon, run: () => { updateAgent(a.id, { model: p.id }); toast(`${a.name} now thinks with ${p.name}`); react(a.id, 'yes'); chat(main); } }))
-        .concat([]));
+      return pickModel(b, a, () => { react(a.id, 'yes'); chat(main); });
     }
     if (act === 'computer') return menu(b, state.computers.map((c) => ({ label: c.name, checked: c.id === a.computer, icon: c.kind === 'local' ? 'laptop' : 'cloud', run: () => { updateAgent(a.id, { computer: c.id }); toast(`${a.name} moved to ${c.name}`); react(a.id, c.kind === 'local' ? 'peek' : 'yes'); chat(main); } })));
     if (act === 'look') return openCreate({ edit: a.id, step: 0 });
