@@ -32,6 +32,7 @@ export function load() {
   state.computers = saved?.computers || (APP ? HERE() : seed(COMPUTERS));
   state.providers = saved?.providers || PROVIDERS.map((p) => ({ id: p.id, connected: APP ? false : p.connected, key: '' }));
   Object.assign(state.settings, saved?.settings || {});
+  if (!APP && !state.settings.pinned) state.settings.pinned = ['scout']; // the preview shows what pinning looks like
   if (!state.settings.soundsOn) { state.settings.sounds = true; state.settings.soundsOn = 1; } // the switch works now: on to start
   for (const a of state.agents) { a.perms ||= { ...DEFAULT_PERMS }; a.outfit ||= {}; state.threads[a.id] ||= []; }
   if (!state.agents.find((a) => a.id === state.route.agent)) state.route.agent = state.agents[0]?.id;

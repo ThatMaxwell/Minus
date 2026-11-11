@@ -40,28 +40,20 @@ export function chat(main) {
     <section class="chat ${state.panel ? 'with-panel' : ''}">
       <header class="ch-h ${a.status === 'working' ? 'working' : ''}" style="--ac:${esc(a.color || '#f3f2ee')}">
         <button class="icon-btn ch-back" data-act="back" aria-label="Back to your agents">${icon('back')}</button>
-        <div class="ch-who">
-          <span class="ch-face">${face(a, 56, 'data-idle="1"')}</span>
-          <div class="ch-id">
-            <div class="ch-name"><b>${esc(a.name)}</b>${a.role ? `<span class="ch-role">${esc(a.role)}</span>` : ''}</div>
-            <span class="ch-status"><i class="dot ${STATUS[a.status]?.tone}"></i><span class="ch-st">${statusHTML(a)}</span></span>
-          </div>
-        </div>
-        <div class="ch-brain">
-          <button class="ch-seg" data-act="model" data-tip="Which AI ${esc(a.name)} thinks with">${prov.icon}<span>${esc(prov.name)}</span>${rt.modelOf(a) ? `<small>${esc(prettyModel(rt.modelOf(a)))}</small>` : ''}${icon('chevron', 'rot')}</button>
-          <i class="ch-div"></i>
-          <button class="ch-seg" data-act="computer" data-tip="Which computer ${esc(a.name)} works on">${icon(comp?.kind === 'local' ? 'laptop' : 'cloud')}<span>${esc(comp?.name || 'No computer')}</span>${icon('chevron', 'rot')}</button>
-        </div>
+        <span class="grow"></span>
+        <button class="ch-pill" data-act="look" data-tip="${esc(a.role || 'Change how ' + a.name + ' looks')}">
+          <span class="ch-face">${face(a, 22, 'data-idle="1"')}</span><b>${esc(a.name)}</b>
+          <span class="ch-status"><i class="dot ${STATUS[a.status]?.tone}"></i><span class="ch-st">${statusHTML(a)}</span></span>
+        </button>
         <div class="ch-tools">
           <button class="icon-btn" data-act="rewind" data-tip="Rewind: go back to an earlier moment and continue from there">${icon('rewind')}</button>
           <button class="icon-btn" data-act="teach" data-tip="Show me once: do a job while ${esc(a.name)} watches, and it learns how">${icon('showme')}</button>
           <button class="icon-btn nb-btn" data-act="notebook" data-tip="${esc(a.name)}’s notebook: what it has learned">${icon('book')}<span class="nb-count" ${nb.count(a) ? '' : 'hidden'}>${nb.count(a)}</span></button>
-          <button class="icon-btn" data-act="look" data-tip="Change how ${esc(a.name)} looks">${icon('sparkle')}</button>
-          <span class="sep"></span>
           <button class="icon-btn web-btn ${rt.isBrowsing(a.id) ? 'live' : ''}" data-act="browser" data-tip="Watch ${esc(a.name)}’s browser, live">${icon('globe')}</button>
           <button class="icon-btn" data-act="pause" data-tip="${a.status === 'paused' ? 'Resume' : 'Pause'} ${esc(a.name)}">${icon(a.status === 'paused' ? 'play' : 'pause')}</button>
-          <button class="icon-btn ${state.panel ? 'on' : ''}" data-act="panel" data-tip="${state.panel ? 'Hide' : 'Show'} the computer|mod .">${icon('panel')}</button>
           <button class="icon-btn" data-act="more" data-tip="More">${icon('more')}</button>
+          <span class="sep"></span>
+          <button class="icon-btn ${state.panel ? 'on' : ''}" data-act="panel" data-tip="${state.panel ? 'Hide' : 'Show'} ${esc(a.name)}’s computer|mod .">${icon('panel')}</button>
         </div>
         <i class="ch-work" aria-hidden="true"></i>
       </header>
@@ -72,18 +64,18 @@ export function chat(main) {
             <div class="cmp-ban" hidden role="status"></div>
             <div class="cmp-box">
               <div class="cmp-files" hidden></div>
-              <textarea rows="1" placeholder="Message ${esc(a.name)}…" aria-label="Message ${esc(a.name)}"></textarea>
+              <textarea rows="1" placeholder="What’s next?" aria-label="Message ${esc(a.name)}"></textarea>
               <div class="cmp-rec" hidden aria-live="polite"><span class="rec-dot"></span><span class="rec-wave">${'<i></i>'.repeat(28)}</span><span class="rec-t">Listening…</span><span class="grow"></span><span class="muted small rec-k"><kbd>Enter</kbd> done · <kbd>Esc</kbd> cancel</span></div>
               <div class="cmp-row">
                 <button type="button" class="icon-btn sm" data-act="attach" data-tip="Attach files or a screenshot">${icon('paperclip')}</button>
-                <button type="button" class="chip sm" data-act="model" data-tip="Change the AI for this agent">${prov.icon}<span>${esc(prov.name)}</span></button>
+                <button type="button" class="cmp-chip" data-act="computer" data-tip="Which computer ${esc(a.name)} works on">${icon(comp?.kind === 'local' ? 'laptop' : 'cloud')}<span>${esc(comp?.name || 'No computer')}</span></button>
                 ${rt.onPlan(a.model) ? `<span class="plan-use">Using ChatGPT plan · <a href="https://chatgpt.com/settings/usage" data-plan-usage>Manage usage</a></span>` : ''}
                 <span class="grow"></span>
+                <button type="button" class="cmp-chip cmp-model" data-act="model" data-tip="Which AI ${esc(a.name)} thinks with, and how hard">${prov.icon}<span>${esc(rt.modelOf(a) ? prettyModel(rt.modelOf(a)) : prov.name)}</span><small>${{ low: 'Low', medium: 'Med', high: 'High' }[a.effort || 'medium']}</small></button>
                 <button type="button" class="icon-btn sm mic" data-act="mic" data-tip="Talk to ${esc(a.name)}|mod J" aria-label="Talk to ${esc(a.name)}">${icon('mic')}<span class="mic-ring"></span></button>
                 <button type="submit" class="send" disabled data-tip="Send|Enter">${icon('send')}</button>
               </div>
             </div>
-            <p class="cmp-hint">${esc(a.name)} works on ${esc(comp?.name || 'its computer')} and asks before anything it can’t undo. <kbd>Shift</kbd> <kbd>Enter</kbd> for a new line.</p>
           </form>
         </div>
         <aside class="pc-panel view-${state.panelView === 'browser' ? 'browser' : 'screen'}" aria-label="${esc(a.name)}’s computer">
@@ -522,8 +514,8 @@ export function msgHTML(a, m, prev, cont) {
   if (m.kind === 'rewound') return `<div class="m sys rw-mark" data-mid="${mid}">${icon('rewind')}<span>Rewound to here</span></div>`;
   if (m.from === 'system' || m.kind === 'handoff') return `<div class="m sys" data-mid="${mid}">${icon('handoff')}<span>${esc(m.text)}</span></div>`;
   if (m.from === 'me') return `<div class="m me ${m.via === 'voice' ? 'said' : ''}" data-mid="${mid}">${m.via === 'voice' ? `<span class="said-ic" data-tip="You said this out loud">${icon('mic')}</span>` : ''}${m.files?.length ? `<div class="m-files">${m.files.map((f) => `<span class="fchip" data-tip="${esc(f.path || f.name)}">${icon('file')}<span>${esc(f.name)}</span></span>`).join('')}</div>` : ''}<p>${esc(m.text)}</p></div>`;
-  const head = sameRun ? '<span class="gutter"></span>' : face(a, 26);
-  const name = sameRun ? '' : `<b class="who">${esc(a.name)} <time>${m.at ? timeAgo(m.at) : ''}</time></b>`;
+  const head = '';
+  const name = '';
   let body = '';
   if (m.kind === 'pcoff' || (m.kind === 'needai' && m._remote)) {
     // on the phone: this agent works on your PC, which is off or can't answer right now
@@ -552,19 +544,21 @@ export function msgHTML(a, m, prev, cont) {
       <div class="ask-btns"><button class="btn btn-quiet btn-sm" data-open-skills>See all skills</button>${sk ? `<button class="btn btn-primary btn-sm" data-run-skill="${esc(sk.id)}">${icon('play')}Run it</button>` : ''}</div>
     </div>`;
   } else if (m.kind === 'steps') {
-    const pct = m.total ? Math.round((m.done / m.total) * 100) : 0;
-    const count = m.total ? `${m.done || 0}/${m.total}` : `${m.done || 0} step${m.done === 1 ? '' : 's'}`;
-    const price = m.cost != null ? `<span class="st-cost" data-tip="What this job cost on your own API key so far">${m.cost < 0.01 ? '<$0.01' : '$' + m.cost.toFixed(2)}</span>` : '';
-    body = `<div class="card steps ${m.live ? 'is-live' : ''}">
-      <div class="card-h">${icon('monitor')}<span>${esc(m.title)}</span>${m.live ? musingHTML(a, 'mz-card') : ''}${price}<b>${count}</b></div>
-      <div class="bar ${m.total ? '' : 'flow'}"><i style="width:${m.total ? pct : 100}%"></i></div>
-      ${m.note && m.live ? `<p class="st-note">${esc(m.note)}</p>` : ''}
-      <div class="st-list">${(m.steps || []).map((s, i, arr) => `<div class="st ${i === arr.length - 1 && m.live ? 'run' : 'done'}"><span class="ic">${i === arr.length - 1 && m.live ? '<i class="spin"></i>' : icon('check')}</span>${esc(s)}</div>`).join('') || (m.live ? '<div class="st run"><span class="ic"><i class="spin"></i></span>Starting…</div>' : '')}</div>
-    </div>`;
-  } else if (m.kind === 'mod') {
-    const T = { warn: ['Warning', 'Minus keeps its rules on. If this goes on, you’ll be kicked.'], kick: ['Kicked from this chat', `${esc(a.name)} forgot this conversation. You can talk again in a minute.`], ban: [`Banned for ${m.minutes >= 120 ? Math.round(m.minutes / 60) + ' hours' : (m.minutes || 60) + ' minutes'}`, 'No talking to any of your agents until it’s over.'], permaban: ['Banned permanently', 'No talking to any agent until the owner of this computer lifts it in Settings → Safety.'], freshwipe: ['Last warning', 'Everything your agents remembered about you is erased. Next time it’s a ban.'] }[m.action] || ['Warning', ''];
-    body = `<div class="card mod-card ${esc(m.action)}"><div class="card-h">${icon('shield')}<span>${T[0]}</span></div>
-      ${m.reason ? `<p class="ask-what">${esc(m.reason)}</p>` : ''}<p class="ask-detail">${T[1]}</p></div>`;
+    const n = m.done || (m.steps || []).length;
+    const count = m.total ? `${m.done || 0}/${m.total}` : `${n} step${n === 1 ? '' : 's'}`;
+    const price = m.cost != null ? `<span class="w-cost" data-tip="What this job cost on your own API key">${m.cost < 0.01 ? '<$0.01' : '$' + m.cost.toFixed(2)}</span>` : '';
+    const steps = `<ol class="w-steps">${(m.steps || []).map((x, i, arr) => `<li class="${i === arr.length - 1 && m.live ? 'run' : ''}">${i === arr.length - 1 && m.live ? '<i class="spin"></i>' : icon('check')}<span>${esc(x)}</span></li>`).join('')}</ol>`;
+    if (m.live) {
+      const now = (m.steps || [])[m.steps?.length - 1] || 'Getting started';
+      body = `<div class="work is-live"><div class="w-line">${musingHTML(a, 'mz-work')}<span class="w-now">${esc(now)}</span><span class="w-n">${count}</span></div>
+        <div class="w-bar ${m.total ? '' : 'flow'}"><i style="width:${m.total ? Math.round(((m.done || 0) / m.total) * 100) : 100}%"></i></div>
+        ${m.note ? `<p class="w-note">${esc(m.note)}</p>` : ''}</div>`;
+    } else {
+      const secs = m.doneAt && m.at ? Math.max(1, Math.round((m.doneAt - m.at) / 1000)) : 0;
+      const dur = !secs ? '' : secs < 60 ? `${secs}s` : secs < 3600 ? `${Math.floor(secs / 60)}m ${secs % 60 ? `${secs % 60}s` : ''}`.trim() : `${Math.floor(secs / 3600)}h ${Math.round((secs % 3600) / 60)}m`;
+      const how = /stopped|problem/i.test(m.title || '') ? (/problem/i.test(m.title) ? 'Stopped by a problem' : 'Stopped') : 'Worked';
+      body = `<details class="work is-done"><summary><span>${how}${dur ? ` for ${dur}` : ''} · ${n} step${n === 1 ? '' : 's'}</span>${price}${icon('chevron', 'w-chev')}</summary>${steps}</details>`;
+    }
   } else if (m.kind === 'question') {
     body = `<div class="card q-card ${m.answered ? 'done' : ''}">
       <div class="card-h">${icon('edit')}<span>${m.answered ? 'Answered' : 'Needs an answer'}</span></div>

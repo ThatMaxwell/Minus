@@ -2,6 +2,7 @@
 import { state, load, on, agent, go, save, pendingApprovals } from './store.js';
 import { $, $$, tooltips, icon, isMac } from './ui.js';
 import { installDefs } from '../js/shape.js';
+import { STATUS } from './data.js';
 import { keepNames } from '../js/names.js';
 import { idleWatch } from './director.js';
 import { sidebar } from './views/sidebar.js';
@@ -44,8 +45,8 @@ const app = $('#app');
 app.innerHTML = `
   <header class="titlebar" data-tauri-drag-region>
     <div class="tb-l">${isMac ? '<span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span>' : ''}<span class="logo"><b>minus</b></span><span class="beta">Beta</span><span class="grow"></span><button class="icon-btn tb-side" data-side data-tip="Hide or show the sidebar|mod B" aria-label="Hide or show the sidebar">${icon('sidebar')}</button></div>
-    <button class="tb-search" data-palette data-tip="Jump anywhere|mod K">${icon('search')}<span>Search agents and actions</span><kbd>${isMac ? '⌘' : 'Ctrl'} K</kbd></button>
-    <div class="tb-r"><button class="icon-btn" data-go-approvals data-tip="Approvals">${icon('bell')}</button><button class="icon-btn" data-help data-tip="Keyboard shortcuts">${icon('keyboard')}</button>${tauri && !isMac ? `<span class="wc"><button data-wc="min" aria-label="Minimize"><svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg></button><button data-wc="max" aria-label="Maximize"><svg viewBox="0 0 12 12"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="1"/></svg></button><button data-wc="close" class="wc-x" aria-label="Close to the tray"><svg viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button></span>` : ''}</div>
+    <div class="tb-mid"><span class="tb-tab"><i class="dot dim"></i><span class="tb-title">Minus</span></span><button class="icon-btn tb-find" data-palette data-tip="Jump anywhere|mod K" aria-label="Jump anywhere">${icon('search')}</button></div>
+    <div class="tb-r"><button class="icon-btn" data-help data-tip="Keyboard shortcuts" aria-label="Keyboard shortcuts">${icon('keyboard')}</button>${tauri && !isMac ? `<span class="wc"><button data-wc="min" aria-label="Minimize"><svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg></button><button data-wc="max" aria-label="Maximize"><svg viewBox="0 0 12 12"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="1"/></svg></button><button data-wc="close" class="wc-x" aria-label="Close to the tray"><svg viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button></span>` : ''}</div>
   </header>
   <aside class="side" aria-label="Agents and places"></aside>
   <main class="main" id="main"></main>
@@ -70,6 +71,18 @@ if (phone) {
   on('route', (r) => { if (r.view !== 'home') history.pushState({}, ''); });
 }
 on('route', render);
+// the tab at the top: who you're talking to (and how it's doing), or which page this is
+const PAGES = { approvals: 'Approvals', routines: 'Routines', computers: 'Computers', settings: 'Settings', standup: 'Stand-up', room: 'Ask the room', home: 'Home' };
+const tab = () => {
+  const r = state.route, a = r.view === 'chat' ? state.agents.find((x) => x.id === r.agent) : null;
+  const title = $('.tb-title', app), dot = $('.tb-tab .dot', app);
+  title.textContent = a ? a.name : PAGES[r.view] || 'Minus';
+  dot.className = `dot ${a ? STATUS[a.status]?.tone || 'dim' : 'dim'}`;
+  document.title = a ? `${a.name} · Minus` : r.view in PAGES ? `${PAGES[r.view]} · Minus` : 'Minus';
+};
+tab();
+on('route', tab);
+on('agent', (x) => { if (state.route.view === 'chat' && state.route.agent === x.id) tab(); });
 on('agents', () => { if (state.route.view === 'chat') { if (!agent(state.route.agent)) state.route.agent = state.agents[0]?.id; render(); } });
 render();
 

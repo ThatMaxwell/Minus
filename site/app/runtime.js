@@ -231,7 +231,7 @@ export function listen() {
         if (!cur.mid) { quiet(); cur.mid = post(aid, { from: 'agent', kind: 'steps', title: 'Working', live: true, done: 0, steps: [] }).mid; }
         cur.steps.push(e.text);
         emit('step', { agent: aid, text: e.text });
-        card({ steps: cur.steps.slice(-5), done: cur.steps.length });
+        card({ steps: cur.steps.slice(-80), done: cur.steps.length });
         updateAgent(aid, { statusText: e.text });
         react(aid, 'step');
         break;
@@ -294,7 +294,7 @@ export function listen() {
         break;
       case 'done':
         quiet();
-        card({ live: false, title: `Done on ${computer(a.computer)?.name || 'this computer'}` });
+        card({ live: false, title: `Done on ${computer(a.computer)?.name || 'this computer'}`, doneAt: Date.now() });
         live.delete(aid);
         if (cur?.draft) patchMessage(aid, cur.draft, { text: e.text?.trim() || '…', live: false, voice: takeVoice(aid) });
         else if (e.text?.trim()) post(aid, { from: 'agent', text: e.text.trim(), voice: takeVoice(aid) });
@@ -307,7 +307,7 @@ export function listen() {
       case 'stopped':
         quiet();
         if (cur?.draft) patchMessage(aid, cur.draft, { live: false });
-        card({ live: false, title: 'Stopped' });
+        card({ live: false, title: 'Stopped', doneAt: Date.now() });
         live.delete(aid); asking.delete(aid);
         updateAgent(aid, { status: 'idle', statusText: 'Stopped' });
         emit('work', { agent: aid, on: false });
@@ -316,7 +316,7 @@ export function listen() {
       case 'error':
         quiet();
         if (cur?.draft) patchMessage(aid, cur.draft, { live: false });
-        card({ live: false, title: 'Stopped by a problem' });
+        card({ live: false, title: 'Stopped by a problem', doneAt: Date.now() });
         live.delete(aid); asking.delete(aid);
         post(aid, { from: 'agent', kind: 'problem', text: e.message });
         updateAgent(aid, { status: 'idle', statusText: 'Hit a problem' });
