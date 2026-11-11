@@ -1175,3 +1175,6 @@ html.calm *, html.calm *::before { animation-play-state: paused !important; }
 .phone .ch-pill b { flex: none; }
 .phone .ch-pill .ch-status { min-width: 0; flex: 1; max-width: none; overflow: hidden; }
 .phone .ch-tools { flex: none; }
+/* the agent's face sits under its reply, and its feelings show there live */
+.m.ag .m-foot { margin-top: 6px; height: 30px; }
+.m.ag:has(+ .m.ag.cont) .m-foot { display: none; }

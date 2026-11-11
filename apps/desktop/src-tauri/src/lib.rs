@@ -107,6 +107,21 @@ fn data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     app.path().app_data_dir().map_err(|e| e.to_string())
 }
 
+/// A file picked with + in a chat: kept in Minus's folder so the agent can open it by its path.
+#[tauri::command]
+fn attach_save(app: AppHandle, name: String, data: String) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data.as_bytes()).map_err(|e| e.to_string())?;
+    let safe: String = name.chars().map(|c| if c.is_alphanumeric() || ".-_ ()".contains(c) { c } else { '_' }).collect();
+    let safe = if safe.trim().is_empty() { "file".to_string() } else { safe };
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let dir = data_dir(&app)?.join("attachments").join(stamp.to_string());
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(safe);
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 /// The agent's AI with its key (read here, never sent to the page).
 async fn brain_of(app: &AppHandle, brain: BrainIn) -> Result<agent::Brain, String> {
     // a ChatGPT plan: the sign-in's access token (renewed when it's about to run out)
@@ -764,11 +779,11 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
 /// The commands the app's pages can call.
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout, cloud_connect, cloud_disconnect, cloud_regions, cloud_list, cloud_create, cloud_refresh, cloud_power, cloud_delete, orpheus_install, orpheus_codes, orpheus_remove]
+    tauri::generate_handler![attach_save, hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout, cloud_connect, cloud_disconnect, cloud_regions, cloud_list, cloud_create, cloud_refresh, cloud_power, cloud_delete, orpheus_install, orpheus_codes, orpheus_remove]
 }
 #[cfg(mobile)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout]
+    tauri::generate_handler![attach_save, hands_windows, hands_look, hands_act, hands_screen, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout]
 }
 
 /// When Minus can't start or hits a bug it can't recover from, say so (a popup on Windows,

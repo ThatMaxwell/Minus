@@ -67,7 +67,7 @@ export function chat(main) {
               <textarea rows="1" placeholder="What’s next?" aria-label="Message ${esc(a.name)}"></textarea>
               <div class="cmp-rec" hidden aria-live="polite"><span class="rec-dot"></span><span class="rec-wave">${'<i></i>'.repeat(28)}</span><span class="rec-t">Listening…</span><span class="grow"></span><span class="muted small rec-k"><kbd>Enter</kbd> done · <kbd>Esc</kbd> cancel</span></div>
               <div class="cmp-row">
-                <button type="button" class="icon-btn sm" data-act="attach" data-tip="Attach files or a screenshot">${icon('paperclip')}</button>
+                <button type="button" class="icon-btn sm" data-act="attach" data-tip="Add files or photos">${icon('plus')}</button><input type="file" class="cmp-pick" multiple hidden>
                 <button type="button" class="cmp-chip" data-act="computer" data-tip="Which computer ${esc(a.name)} works on">${icon(comp?.kind === 'local' ? 'laptop' : 'cloud')}<span>${esc(comp?.name || 'No computer')}</span></button>
                 ${rt.onPlan(a.model) ? `<span class="plan-use">Using ChatGPT plan · <a href="https://chatgpt.com/settings/usage" data-plan-usage>Manage usage</a></span>` : ''}
                 <span class="grow"></span>
@@ -180,6 +180,26 @@ export function chat(main) {
     ta.focus();
     if (fs.length) ta.placeholder = `What should ${a.name} do with ${fs.length === 1 ? 'it' : 'them'}?`;
   }));
+  // + : pick files. The desktop app keeps a copy the agent can open by path; elsewhere, text files go along as they are
+  const picker = $('.cmp-pick', main);
+  const take = async (list) => {
+    const out = [];
+    for (const f of list) {
+      const one = { name: f.name, size: f.size };
+      try {
+        if (window.__TAURI__ && f.size < 200e6) {
+          const b = new Uint8Array(await f.arrayBuffer()); let bin = '';
+          for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+          one.path = await window.__TAURI__.core.invoke('attach_save', { name: f.name, data: btoa(bin) });
+        }
+      } catch {}
+      if (!one.path && f.size < 100e3 && (/^text\/|json|xml|csv|javascript/.test(f.type) || /\.(txt|md|csv|json|js|ts|py|rs|html|css|log|xml|ya?ml)$/i.test(f.name))) one.content = await f.text().catch(() => undefined);
+      out.push(one);
+    }
+    if (out.length) emit('attach', { agent: a.id, files: out, text: '' });
+  };
+  picker?.addEventListener('change', () => { const l = [...picker.files]; picker.value = ''; take(l); });
+  ta.addEventListener('paste', (e) => { const l = [...(e.clipboardData?.files || [])]; if (l.length) { e.preventDefault(); take(l); } });
   main.addEventListener('click', (e) => { const x = e.target.closest('[data-unfile]'); if (x) { files.splice(+x.dataset.unfile, 1); chips(); } });
   let lastLen = 0;
   ta.addEventListener('focus', () => react(a.id, 'listening', ta));
@@ -213,10 +233,10 @@ export function chat(main) {
     if (!text && fs.length) text = fs.length === 1 ? 'Here’s a file for you.' : `Here are ${fs.length} files for you.`;
     ta.value = ''; grow(); lastLen = 0;
     if (via === 'voice') heardYou(a.id);
-    post(a.id, { from: 'me', text, ...(via ? { via } : {}), ...(fs.length ? { files: fs } : {}) });
+    post(a.id, { from: 'me', text, ...(via ? { via } : {}), ...(fs.length ? { files: fs.map(({ content, ...f }) => f) } : {}) });
     react(a.id, 'send');
     // the agent gets where the files are, so it can open them on its computer
-    respond(a.id, fs.length ? `${text}\n\nFiles you were given:\n${fs.map((f) => `- ${f.path || f.name}`).join('\n')}` : text);
+    respond(a.id, fs.length ? `${text}\n\nFiles you were given:\n${fs.map((f) => `- ${f.path || f.name}${f.content != null ? `\n\`\`\`\n${f.content}\n\`\`\`` : f.path ? '' : ' (only its name came through here)'}`).join('\n')}` : text);
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -427,7 +447,7 @@ export function chat(main) {
       motion().animate($('.pcp-yours > div', main), { opacity: [0, 1], scale: [0.95, 1] }, { type: 'spring', stiffness: 380, damping: 28 });
     }
     if (act === 'giveback') { driving = false; $('.pcp-yours', main).hidden = true; react(a.id, 'giveback'); syncSim(); toast(`${a.name} has the computer again`, { icon: 'hand' }); }
-    if (act === 'attach') toast('Drop files here, or paste a screenshot', { icon: 'paperclip' });
+    if (act === 'attach') $('.cmp-pick', main)?.click();
     if (act === 'mic') return talk();
     if (act === 'notebook') { b.classList.remove('fresh'); return nb.open(main, a.id); }
   };
@@ -577,7 +597,7 @@ export function msgHTML(a, m, prev, cont) {
   } else {
     body = `<div class="md">${md(m.text)}</div><button class="say" data-say data-tip="Read aloud" aria-label="Read aloud"><span class="say-bars"><i></i><i></i><i></i></span>${icon('speaker')}</button>` + (m.choices ? `<div class="choices">${m.choices.map((c) => `<button class="chip" data-choice="${esc(c)}" ${m.chosen ? 'disabled' : ''} ${m.chosen === c ? 'aria-pressed="true"' : ''}>${esc(c)}</button>`).join('')}</div>` : '');
   }
-  return `<div class="m ag ${sameRun ? 'cont' : ''}" data-mid="${mid}">${head}<div class="m-body">${name}${body}</div></div>`;
+  return `<div class="m ag ${sameRun ? 'cont' : ''}" data-mid="${mid}">${head}<div class="m-body">${name}${body}</div><div class="m-foot">${face(a, 30)}</div></div>`;
 }
 
 function rename(a, main) {
