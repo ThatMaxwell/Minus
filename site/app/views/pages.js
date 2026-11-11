@@ -179,7 +179,12 @@ export function keySheet(done = () => {}) {
 export function connect(pid, done) {
   const p = provider(pid), eng = rt.ENGINES[pid] || {}, ps = providerState(pid) || {};
   const local = p.local, custom = eng.custom;
+  const plan = pid === 'chatgpt' && rt.desktop;
   const s = sheet(`<form class="mini-form"><h3>${p.icon} Connect ${p.name}</h3>
+    ${plan ? `<button type="button" class="siwc" data-siwc>${p.icon}<span>Continue with ChatGPT</span></button>
+    <p class="muted small siwc-note">Your agents use your ChatGPT plan (Plus or Pro). No API key, nothing extra to pay. You can cap how much Minus uses in ChatGPT’s settings.</p>
+    <p class="hint-line warn" data-perr></p>
+    <div class="or-line"><span>or use an API key</span></div>` : ''}
     <p class="muted small">${local ? 'Minus talks to Ollama on this computer. Install it from ollama.com and pull a model first.' : `Paste an API key${eng.where ? ` from <b>${esc(eng.where)}</b>` : ''}. It’s kept on this ${/Android/i.test(navigator.userAgent) ? 'phone' : 'computer’s password store'} and only ever sent to ${esc(p.by && !custom ? p.by : 'that provider')}.`}</p>
     ${local ? '' : `<label class="lbl" for="ck">API key</label><input id="ck" class="field mono" type="password" name="k" placeholder="${esc(eng.keyHint || 'API key')}" ${ps.connected ? '' : 'required'} autocomplete="off" spellcheck="false">`}
     <label class="lbl" for="cm">Model</label><input id="cm" class="field mono" name="m" value="${esc(ps.modelId || eng.model || '')}" placeholder="model name" list="cm-list" ${custom ? 'required' : ''} autocomplete="off" spellcheck="false"><datalist id="cm-list">${(ps.models || []).map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
@@ -188,7 +193,22 @@ export function connect(pid, done) {
     <p class="hint-line warn" data-err></p>
     <div class="row-end"><button type="button" class="btn btn-quiet btn-sm" data-x>Cancel</button><button class="btn btn-primary btn-sm">Connect</button></div></form>`, { cls: 'small' });
   $('[data-x]', s.el).onclick = s.close;
-  setTimeout(() => $('input', s.el)?.focus(), 30);
+  if (!plan) setTimeout(() => $('input', s.el)?.focus(), 30);
+  const sb = $('[data-siwc]', s.el);
+  if (sb) sb.onclick = async () => {
+    const perr = $('[data-perr]', s.el);
+    sb.disabled = true; sb.lastElementChild.textContent = 'Finish signing in in your browser…'; perr.textContent = '';
+    try {
+      const r = await rt.planSignIn();
+      const st = providerState(pid);
+      const slugs = (r.models || []).map((m) => m[0]);
+      st.connected = true; st.key = ''; st.plan = { email: r.email || '', at: Date.now() };
+      if (slugs.length) { st.models = slugs; st.modelsAt = Date.now(); st.modelId = slugs.includes(st.modelId) ? st.modelId : slugs[0]; }
+      save(); s.close(); done();
+      planWelcome();
+      import('../brain.js').then((b) => b.aiConnected(pid));
+    } catch (x) { perr.textContent = String(x?.message || x); sb.disabled = false; sb.lastElementChild.textContent = 'Continue with ChatGPT'; }
+  };
   $('form', s.el).onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target), k = String(f.get('k') || '').trim(), err = $('[data-err]', s.el), go = $('.btn-primary', s.el);
@@ -214,4 +234,15 @@ export function connect(pid, done) {
     toast(swapped ? `${p.name} connected. ${swapped} isn’t on your account, so agents use ${model}.` : rt.desktop ? `${p.name} connected and working. Agents using it now work for real.` : `${p.name} connected`);
     import('../brain.js').then((b) => b.aiConnected(pid));
   };
+}
+
+// The first time agents use your ChatGPT plan: say so, once.
+export function planWelcome() {
+  if (state.settings.planWelcomed) return;
+  state.settings.planWelcomed = true; save();
+  const s = sheet(`<div class="mini-form"><h3>You’re using your ChatGPT plan</h3>
+    <p class="muted small">Agents that think with ChatGPT now use your ChatGPT plan instead of an API key. You can see and limit how much Minus uses in ChatGPT’s settings.</p>
+    <div class="row-end"><a class="btn btn-quiet btn-sm" href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener" data-ext>Manage usage</a><button class="btn btn-primary btn-sm" data-x>Got it</button></div></div>`, { cls: 'small' });
+  $('[data-x]', s.el).onclick = s.close;
+  $('[data-ext]', s.el).onclick = (e) => { e.preventDefault(); const u = e.currentTarget.href; window.__TAURI__?.opener ? window.__TAURI__.opener.openUrl(u) : window.open(u, '_blank', 'noopener'); };
 }

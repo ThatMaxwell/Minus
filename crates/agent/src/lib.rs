@@ -9,6 +9,8 @@
 
 mod anthropic;
 mod openai;
+mod responses;
+pub mod signin;
 pub mod room;
 pub mod check;
 pub mod web;
@@ -185,7 +187,12 @@ pub struct Runtime {
 }
 
 fn family(b: &Brain) -> String {
-    if b.provider == "anthropic" { "anthropic".into() } else { format!("openai:{}", b.provider) }
+    match b.provider.as_str() {
+        "anthropic" => "anthropic".into(),
+        // a ChatGPT plan speaks OpenAI's Responses API
+        "chatgpt-plan" => "responses".into(),
+        p => format!("openai:{p}"),
+    }
 }
 
 impl Runtime {
@@ -460,6 +467,7 @@ impl Runtime {
         c.messages.push(if fam == "anthropic" { user } else { json!({"role": "user", "content": format!("{text}\n\n(Today is {date}.)")}) });
         let mut compat = anthropic::Compat::default();
         let mut ocompat = openai::Compat::default();
+        let mut rcompat = responses::Compat::default();
         let mut nudges = 0;
         for _round in 0..200 {
             if stop.load(Ordering::SeqCst) {
@@ -468,6 +476,8 @@ impl Runtime {
             }
             let turn = if fam == "anthropic" {
                 anthropic::turn(&self.inner.http, &brain, &system, &c.messages, &mut compat, computer, browser, &emit, &stop).await
+            } else if fam == "responses" {
+                responses::turn(&self.inner.http, &brain, &system, &c.messages, computer, browser, &mut rcompat, &emit, &stop).await
             } else {
                 openai::turn(&self.inner.http, &brain, &system, &c.messages, computer, browser, &mut ocompat, &emit, &stop).await
             };
@@ -964,6 +974,7 @@ pub(crate) fn provider_name(p: &str) -> &str {
     match p {
         "anthropic" => "Claude",
         "openai" | "chatgpt" | "codex" => "OpenAI",
+        "chatgpt-plan" => "ChatGPT",
         "gemini" => "Gemini",
         "grok" | "xai" => "Grok",
         "openrouter" | "llama" => "OpenRouter",

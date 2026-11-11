@@ -1046,3 +1046,12 @@ html.calm *, html.calm *::before { animation-play-state: paused !important; }
 .vg-card .field.sel { flex: 1; min-width: 0; max-width: none; }
 @media (max-width: 1100px) { .vo-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .lv-grid { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .vo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Sign in with ChatGPT */
+.siwc { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 44px; margin-top: 4px; border-radius: 12px; background: #000; color: #fff; font-weight: 600; font-size: 14px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); transition: background .15s, transform .12s; }
+.siwc:hover:not(:disabled) { background: #111; } .siwc:active { transform: scale(.985); } .siwc:disabled { opacity: .75; cursor: default; }
+.siwc svg { width: 18px; height: 18px; fill: #fff; }
+.siwc-note { margin: 8px 0 0; }
+.or-line { display: flex; align-items: center; gap: 10px; margin: 16px 0 6px; color: var(--fg-3); font-size: 12px; }
+.or-line::before, .or-line::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.plan-use { color: var(--fg-3); font-size: 11.5px; white-space: nowrap; } .plan-use a { color: var(--fg-2); text-decoration: underline; text-underline-offset: 2px; }

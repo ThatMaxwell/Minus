@@ -72,7 +72,21 @@ export function pickModel(pid, models, wanted) {
 }
 
 /** True when this agent should run on the real runtime. */
-export const ready = (a) => !!tauri && !!a && (keyed.has(a.model) || a.model === 'ollama') && !!ENGINES[a.model];
+/** Uses a ChatGPT plan (signed in) rather than an API key. */
+export const onPlan = (pid) => pid === 'chatgpt' && !!providerState('chatgpt')?.plan && keyed.has('chatgpt-plan');
+export const ready = (a) => !!tauri && !!a && (keyed.has(a.model) || a.model === 'ollama' || onPlan(a.model)) && !!ENGINES[a.model];
+
+/* ───────── Sign in with ChatGPT (agents use your ChatGPT plan, no API key) ───────── */
+export async function planSignIn() {
+  const r = await tauri.core.invoke('chatgpt_signin');
+  await refreshKeys();
+  return r;
+}
+export async function planSignOut() {
+  const revoked = await tauri.core.invoke('chatgpt_signout').catch(() => false);
+  await refreshKeys();
+  return revoked;
+}
 
 const live = new Map(); // agent -> { card mid, steps, usage, model }
 const asking = new Map(); // agent -> { call, mid }
@@ -87,7 +101,7 @@ const specOf = (a) => ({
 });
 // Each agent can pick its own model for each AI (a.pick); otherwise the AI's default.
 export const modelOf = (a) => (a.pick || {})[a.model] || (providerState(a.model) || {}).modelId || ENGINES[a.model]?.model;
-const brainOf = (a) => { const eng = ENGINES[a.model], ps = providerState(a.model) || {}; return { provider: eng.provider, slot: a.model, model: modelOf(a), effort: a.effort || 'medium', base_url: ps.baseUrl || null }; };
+const brainOf = (a) => { const eng = ENGINES[a.model], ps = providerState(a.model) || {}; return { provider: onPlan(a.model) ? 'chatgpt-plan' : eng.provider, slot: a.model, model: modelOf(a), effort: a.effort || 'medium', base_url: ps.baseUrl || null }; };
 
 /** Ask the room: this agent's answer, with its own AI and no tools. */
 export async function roomAnswer(a, question, others = [], round = 1) {

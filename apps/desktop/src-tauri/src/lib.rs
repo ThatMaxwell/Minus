@@ -108,7 +108,12 @@ fn data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 }
 
 /// The agent's AI with its key (read here, never sent to the page).
-fn brain_of(app: &AppHandle, brain: BrainIn) -> Result<agent::Brain, String> {
+async fn brain_of(app: &AppHandle, brain: BrainIn) -> Result<agent::Brain, String> {
+    // a ChatGPT plan: the sign-in's access token (renewed when it's about to run out)
+    if brain.provider == "chatgpt-plan" {
+        let s = plan_session(app).await?;
+        return Ok(agent::Brain { provider: brain.provider, model: brain.model, key: s.access_token, effort: brain.effort, base_url: brain.base_url });
+    }
     let key = keys::get(&data_dir(app)?, &brain.slot).unwrap_or_default();
     if key.is_empty() && brain.provider != "ollama" {
         return Err("This agent's AI isn't connected yet. Add a key in Settings → Your AI.".into());
@@ -121,7 +126,7 @@ async fn agent_run(app: AppHandle, rt: tauri::State<'_, Agents>, spec: agent::Ag
     if rt.0.is_running(&spec.id) {
         return Err(format!("{} is already working. Stop it first, or wait.", spec.name));
     }
-    let brain = brain_of(&app, brain)?;
+    let brain = brain_of(&app, brain).await?;
     let id = spec.id.clone();
     let app2 = app.clone();
     let emit: Arc<dyn Fn(agent::Event) + Send + Sync> = Arc::new(move |e| {
@@ -165,6 +170,71 @@ async fn ai_check(app: AppHandle, rt: tauri::State<'_, Agents>, provider: String
     }
     let brain = agent::Brain { provider, model, key, effort: None, base_url: base_url.filter(|u| !u.trim().is_empty()) };
     rt.0.check(&brain, &name).await
+}
+
+/* ───────── Sign in with ChatGPT: agents use your ChatGPT plan instead of an API key ───────── */
+const PLAN: &str = "chatgpt-plan";
+const PLAN_HOST: &str = "chatgpt-host";
+/// One renewal at a time (the refresh token changes each time it's used).
+static PLAN_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn plan_saved(app: &AppHandle) -> Option<agent::signin::Saved> {
+    keys::get(&data_dir(app).ok()?, PLAN).and_then(|j| serde_json::from_str(&j).ok())
+}
+async fn plan_session(app: &AppHandle) -> Result<agent::signin::Saved, String> {
+    let _one = PLAN_LOCK.lock().await;
+    let s = plan_saved(app).ok_or("Sign in with ChatGPT first (Settings → Your AI).")?;
+    if s.fresh() {
+        return Ok(s);
+    }
+    let n = agent::signin::refresh(&agent::http_client(), &s).await?;
+    keys::set(&data_dir(app)?, PLAN, &serde_json::to_string(&n).map_err(|e| e.to_string())?)?;
+    Ok(n)
+}
+
+#[derive(serde::Serialize)]
+struct PlanStatus {
+    email: String,
+    models: Vec<(String, String)>,
+}
+
+/// Opens ChatGPT's sign-in in the browser and waits for it to come back.
+#[tauri::command]
+async fn chatgpt_signin(app: AppHandle) -> Result<PlanStatus, String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = data_dir(&app)?;
+    let before = plan_saved(&app);
+    let host = match keys::get(&dir, PLAN_HOST) {
+        Some(h) => h,
+        None => {
+            let h = agent::signin::new_host_id();
+            keys::set(&dir, PLAN_HOST, &h)?;
+            h
+        }
+    };
+    let p = agent::signin::begin(before.as_ref().map(|s| s.client_id.clone()).filter(|c| !c.is_empty()), &host, before.as_ref().map(|s| s.id_token.as_str())).await?;
+    app.opener().open_url(&p.url, None::<&str>).map_err(|e| format!("Couldn't open the browser ({e})"))?;
+    let http = agent::http_client();
+    let s = agent::signin::finish(&http, p).await?;
+    keys::set(&dir, PLAN, &serde_json::to_string(&s).map_err(|e| e.to_string())?)?;
+    let models = agent::signin::models(&http, &s.access_token).await.unwrap_or_default();
+    Ok(PlanStatus { email: s.email, models })
+}
+#[tauri::command]
+async fn chatgpt_status(app: AppHandle) -> Result<Option<PlanStatus>, String> {
+    let Some(s) = plan_saved(&app) else { return Ok(None) };
+    let models = match plan_session(&app).await {
+        Ok(s2) => agent::signin::models(&agent::http_client(), &s2.access_token).await.unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    Ok(Some(PlanStatus { email: s.email, models }))
+}
+#[tauri::command]
+async fn chatgpt_signout(app: AppHandle) -> Result<bool, String> {
+    let Some(s) = plan_saved(&app) else { return Ok(true) };
+    let revoked = agent::signin::revoke(&agent::http_client(), &s).await.is_ok();
+    keys::remove(&data_dir(&app)?, PLAN);
+    Ok(revoked)
 }
 
 /* ───────── voices: ElevenLabs, OpenRouter and Gemini, with keys from the keychain ───────── */
@@ -219,12 +289,12 @@ fn orpheus_remove(app: AppHandle) -> Result<(), String> {
 /// Ask the room: one agent's answer (round 1), or its reply to the others (round 2).
 #[tauri::command]
 async fn room_answer(app: AppHandle, rt: tauri::State<'_, Agents>, spec: agent::AgentSpec, brain: BrainIn, notes: String, question: String, others: Vec<(String, String)>, round: u8) -> Result<agent::room::Answer, String> {
-    let brain = brain_of(&app, brain)?;
+    let brain = brain_of(&app, brain).await?;
     rt.0.room_answer(&spec, &brain, &notes, &question, &others, round).await
 }
 #[tauri::command]
 async fn room_sum_up(app: AppHandle, rt: tauri::State<'_, Agents>, spec: agent::AgentSpec, brain: BrainIn, question: String, said: Vec<(String, String)>) -> Result<agent::room::Answer, String> {
-    let brain = brain_of(&app, brain)?;
+    let brain = brain_of(&app, brain).await?;
     rt.0.room_sum_up(&spec, &brain, &question, &said).await
 }
 /// Rewind: keep the first `jobs` jobs of this agent's conversation and forget the rest.
@@ -566,11 +636,11 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
 /// The commands the app's pages can call.
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, orpheus_install, orpheus_codes, orpheus_remove]
+    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout, orpheus_install, orpheus_codes, orpheus_remove]
 }
 #[cfg(mobile)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models]
+    tauri::generate_handler![hands_windows, hands_look, hands_act, hands_screen, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout]
 }
 
 /// When Minus can't start or hits a bug it can't recover from, say so (a popup on Windows,

@@ -324,3 +324,35 @@ async fn voices_from_three_services() {
     assert_eq!(seen[1].body["input"], "Oi, Karla!");
     assert_eq!(seen[1].auth, "Bearer sk-or-test");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_job_on_a_chatgpt_plan() {
+    let sse = |events: Vec<Value>| events.iter().map(|e| format!("data: {e}\n\n")).collect::<String>();
+    let call = json!({"type": "function_call", "call_id": "c1", "name": "remember", "namespace": "minus", "arguments": "{\"note\":\"Karla likes tea\"}"});
+    let msg = json!({"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Anotado, Karla!"}]});
+    let (url, seen) = server(vec![
+        (200, sse(vec![json!({"type": "response.output_item.done", "item": call}), json!({"type": "response.completed", "response": {"output": [{"type": "reasoning", "id": "rs_1", "encrypted_content": "sealed"}, call], "usage": {"input_tokens": 900, "output_tokens": 20}}})])),
+        (200, sse(vec![json!({"type": "response.output_text.delta", "delta": "Anotado, "}), json!({"type": "response.output_text.delta", "delta": "Karla!"}), json!({"type": "response.completed", "response": {"output": [msg]}})])),
+    ]);
+    let dir = std::env::temp_dir().join(format!("minus-test-p-{}", std::process::id()));
+    let rt = Runtime::new(dir.clone());
+    let b = Brain { provider: "chatgpt-plan".into(), model: "gpt-6.1-sol".into(), key: "oauth-access".into(), effort: Some("medium".into()), base_url: Some(url.clone()) };
+    let ev = job(&rt, b, "Lembra que eu gosto de chá");
+    let _ = std::fs::remove_dir_all(dir);
+    assert!(ev.iter().any(|e| matches!(e, Event::Remember { text } if text == "Karla likes tea")), "{ev:?}");
+    match ev.last() { Some(Event::Done { text }) => assert_eq!(text, "Anotado, Karla!"), other => panic!("ended with {other:?}") }
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen[0].path, "/v1/responses");
+    assert_eq!(seen[0].auth, "Bearer oauth-access");
+    let b0 = &seen[0].body;
+    assert_eq!(b0["store"], false);
+    assert_eq!(b0["stream"], true);
+    assert!(b0["instructions"].as_str().unwrap().contains("language the person writes in"));
+    assert_eq!(b0["tools"][0]["type"], "namespace");
+    assert!(b0["tools"][0]["tools"].as_array().unwrap().iter().any(|t| t["name"] == "remember"));
+    assert!(b0.get("temperature").is_none() && b0.get("previous_response_id").is_none());
+    // the second request carries everything: the sealed thinking, the call and its result
+    let input = seen[1].body["input"].as_array().unwrap();
+    assert!(input.iter().any(|i| i["type"] == "reasoning" && i["encrypted_content"] == "sealed"));
+    assert!(input.iter().any(|i| i["type"] == "function_call_output" && i["call_id"] == "c1"));
+}

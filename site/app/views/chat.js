@@ -77,6 +77,7 @@ export function chat(main) {
               <div class="cmp-row">
                 <button type="button" class="icon-btn sm" data-act="attach" data-tip="Attach files or a screenshot">${icon('paperclip')}</button>
                 <button type="button" class="chip sm" data-act="model" data-tip="Change the AI for this agent">${prov.icon}<span>${esc(prov.name)}</span></button>
+                ${rt.onPlan(a.model) ? `<span class="plan-use">Using ChatGPT plan · <a href="https://chatgpt.com/settings/usage" data-plan-usage>Manage usage</a></span>` : ''}
                 <span class="grow"></span>
                 <button type="button" class="icon-btn sm mic" data-act="mic" data-tip="Talk to ${esc(a.name)}|mod J" aria-label="Talk to ${esc(a.name)}">${icon('mic')}<span class="mic-ring"></span></button>
                 <button type="submit" class="send" disabled data-tip="Send|Enter">${icon('send')}</button>
@@ -147,7 +148,7 @@ export function chat(main) {
     if (b) { const card = b.closest('[data-mid]'); return resolve(a.id, card.dataset.mid, b.dataset.ap); }
     const c = e.target.closest('[data-choice]');
     if (c) { const card = c.closest('[data-mid]'); return choose(a.id, card.dataset.mid, c.dataset.choice); }
-    const link = e.target.closest('.md a[href]');
+    const link = e.target.closest('.md a[href], a[data-plan-usage]');
     if (link) { e.preventDefault(); const u = link.href; return window.__TAURI__?.opener ? window.__TAURI__.opener.openUrl(u) : window.open(u, '_blank', 'noopener'); }
     const cn = e.target.closest('[data-connect]');
     if (cn) return connect(cn.dataset.connect, () => {});

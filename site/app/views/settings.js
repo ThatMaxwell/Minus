@@ -59,7 +59,7 @@ export function settings(main) {
       const users = state.agents.filter((a) => a.model === p.id).length;
       return `<article class="ai-tile ${on_ ? 'on' : ''}" data-p="${p.id}">
         <div class="ai-top"><span class="ai-ic">${p.icon}</span>${on_ ? `<span class="ai-on"><i></i>Connected</span>` : ''}</div>
-        <b>${esc(p.name)}</b><small>${esc(on_ ? (ps.modelId ? prettyModel(ps.modelId) : p.local ? 'On this computer' : 'Ready') : p.by)}${on_ && users ? ` · ${users} agent${users === 1 ? '' : 's'}` : ''}</small>
+        <b>${esc(p.name)}</b><small>${esc(on_ ? (ps.plan ? `ChatGPT plan${ps.plan.email ? ' · ' + ps.plan.email : ''}` : ps.modelId ? prettyModel(ps.modelId) : p.local ? 'On this computer' : 'Ready') : p.by)}${on_ && users ? ` · ${users} agent${users === 1 ? '' : 's'}` : ''}</small>
         <button class="btn ${on_ ? 'btn-quiet' : 'btn-primary'} btn-sm" data-pc>${on_ ? 'Disconnect' : 'Connect'}</button>
       </article>`; }).join('')}</div>`);
 
@@ -281,7 +281,11 @@ export function settings(main) {
     const pc = e.target.closest('[data-pc]');
     if (pc) {
       const pid = pc.closest('[data-p]').dataset.p, ps = providerState(pid);
-      if (ps.connected) { ps.connected = false; ps.key = ''; if (rt.desktop) rt.removeKey(pid); toast(`${provider(pid).name} disconnected`, { icon: 'x' }); save(); return draw(); }
+      if (ps.connected) {
+        if (ps.plan) { delete ps.plan; rt.planSignOut().then((ok) => toast(ok ? 'Signed out of ChatGPT' : 'Signed out here. To be sure, also disconnect Minus in ChatGPT’s settings.', { icon: 'x' })); }
+        else toast(`${provider(pid).name} disconnected`, { icon: 'x' });
+        ps.connected = false; ps.key = ''; if (rt.desktop) rt.removeKey(pid); save(); return draw();
+      }
       return connect(pid, draw);
     }
     const rep = e.target.closest('[data-vreplace]');
