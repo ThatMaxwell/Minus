@@ -94,7 +94,7 @@ pub fn sign_in() -> Result<(), String> {
 
 /// One job: the person's message in, Claude Code's work out as Minus events. Returns the
 /// session to continue next time, and the final words.
-pub async fn job(dir: &Path, model: &str, system: &str, text: &str, session: Option<&str>, emit: &Emit, stop: &Arc<AtomicBool>) -> Result<(String, String), AgentError> {
+pub async fn job(dir: &Path, model: &str, system: &str, text: &str, session: Option<&str>, mcp: &str, emit: &Emit, stop: &Arc<AtomicBool>) -> Result<(String, String), AgentError> {
     let bin = find().ok_or_else(|| AgentError::Api("Claude Code isn't installed on this PC. Install it from claude.com/claude-code, sign in, and try again.".into()))?;
     let _ = std::fs::create_dir_all(dir);
     let mut cmd = command(&bin);
@@ -106,6 +106,17 @@ pub async fn job(dir: &Path, model: &str, system: &str, text: &str, session: Opt
         .stderr(std::process::Stdio::piped());
     if !model.is_empty() && model != "default" {
         cmd.args(["--model", model]);
+    }
+    // the person's MCP servers: their tools are allowed too
+    if let Ok(v) = serde_json::from_str::<Value>(mcp) {
+        let servers = if v["mcpServers"].is_object() { v["mcpServers"].clone() } else { v };
+        if let Some(names) = servers.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()).filter(|n| !n.is_empty()) {
+            let path = dir.join("mcp.json");
+            if std::fs::write(&path, json!({"mcpServers": servers}).to_string()).is_ok() {
+                cmd.arg("--mcp-config").arg(&path);
+                cmd.arg("--allowedTools").arg(names.iter().map(|n| format!("mcp__{n}")).collect::<Vec<_>>().join(" "));
+            }
+        }
     }
     if let Some(s) = session.filter(|s| !s.is_empty()) {
         cmd.args(["--resume", s]);
@@ -209,6 +220,7 @@ fn step(name: &str, i: &Value) -> String {
         "Grep" => format!("Search files for “{}”", s("pattern")),
         "TodoWrite" => "Plan the steps".into(),
         "Task" | "Agent" => format!("Hand a part to a helper: {}", s("description")),
+        n if n.starts_with("mcp__") => format!("Use {}", n.trim_start_matches("mcp__").replacen("__", ": ", 1).replace('_', " ")),
         n => format!("Use {n}"),
     }
 }

@@ -108,6 +108,7 @@ const specOf = (a) => ({
   skills: (a.skills || []).map((s) => ({ id: s.id, name: s.name, about: s.about || '', steps: s.steps })),
   team: state.agents.filter((x) => x.id !== a.id && x.status !== 'off').map((x) => [x.name, x.role || '']),
   secrets: vault.names(),
+  mcp: state.settings.mcp || '',
 });
 // Each agent can pick its own model for each AI (a.pick); otherwise the AI's default.
 export const modelOf = (a) => (a.pick || {})[a.model] || (providerState(a.model) || {}).modelId || ENGINES[a.model]?.model;

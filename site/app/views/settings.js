@@ -15,7 +15,7 @@ import * as nb from '../notebook.js';
 import * as safety from '../safety.js';
 
 const SECTIONS = [
-  ['account', 'Account', 'user'], ['ai', 'Your AI', 'sparkle'], ['vault', 'Vault', 'lock'], ['memory', 'Memory', 'book'],
+  ['account', 'Account', 'user'], ['ai', 'Your AI', 'sparkle'], ['vault', 'Vault', 'lock'], ['mcp', 'MCP', 'key'], ['memory', 'Memory', 'book'],
   ['voice', 'Voice', 'speaker'], ['agents', 'Agents', 'smile'], ['safety', 'Safety', 'shield'], ['about', 'About', 'info'],
 ];
 const PACES = [['easy', 'Easy to follow'], ['normal', 'Normal'], ['fast', 'Full speed']];
@@ -53,6 +53,13 @@ export function settings(main) {
     ${acct.user() ? `<h3 class="set-h3 row-h"><span>Devices</span><button class="btn btn-quiet btn-sm" data-newdev>${icon('plus')}<span>Add a device</span></button></h3>
     <div class="set-list" id="dev-list"><div class="set-row"><span class="set-t"><small>Loading…</small></span></div></div>` : ''}`);
 
+  main.onsubmit = (e) => {
+    const f = e.target.closest('[data-mcp]'); if (!f) return;
+    e.preventDefault();
+    const j = String(new FormData(f).get('j') || '').trim(), err = $('[data-mcp-err]', f);
+    if (j) { try { const v = JSON.parse(j); const n = Object.keys(v.mcpServers || v).length; err.textContent = ''; toast(`${n} MCP server${n === 1 ? '' : 's'} saved`, { icon: 'check' }); } catch (x) { err.textContent = `That isn’t valid JSON: ${x.message}`; return; } }
+    state.settings.mcp = j; save();
+  };
   const aiSec = () => sec('ai', 'Your AI', 'Connect the subscriptions and keys you already have. Minus never charges for AI. Each agent picks its own model from its chat.', `
     <div class="ai-grid">${PROVIDERS.map((p) => {
       const ps = providerState(p.id) || {}, on_ = ps.connected;
@@ -63,6 +70,9 @@ export function settings(main) {
         <button class="btn ${on_ ? 'btn-quiet' : 'btn-primary'} btn-sm" data-pc>${on_ ? 'Disconnect' : 'Connect'}</button>
       </article>`; }).join('')}</div>`);
 
+  const mcpSec = () => sec('mcp', 'MCP servers', 'Give agents more tools with MCP servers. Paste the usual <code>mcpServers</code> JSON. For now, only agents working through Claude Code on this PC use them.', `
+    <form class="mcp-form" data-mcp><textarea class="field mono" name="j" rows="7" spellcheck="false" placeholder='{ "mcpServers": { "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] } } }'>${esc(state.settings.mcp || '')}</textarea>
+    <p class="hint-line warn" data-mcp-err></p><div class="row-end"><button class="btn btn-primary btn-sm">Save servers</button></div></form>`);
   const vaultSec = () => {
     const ai = PROVIDERS.filter((p) => providerState(p.id)?.connected && !p.local);
     const secrets = vault.names();
@@ -194,7 +204,7 @@ export function settings(main) {
       ${stats()}
       <div class="set-grid">
         <nav class="set-nav" aria-label="Settings sections">${SECTIONS.map(([id, t, ic]) => `<button data-go-sec="${id}" class="${where === id ? 'on' : ''}">${icon(ic)}<span>${t}</span></button>`).join('')}</nav>
-        <div class="set-body">${accountSec()}${aiSec()}${vaultSec()}${memorySec()}${voiceSec()}${agentsSec()}${safetySec()}${aboutSec()}</div>
+        <div class="set-body">${accountSec()}${aiSec()}${vaultSec()}${mcpSec()}${memorySec()}${voiceSec()}${agentsSec()}${safetySec()}${aboutSec()}</div>
       </div>
     </section>`;
     mountMascots(main, agent);

@@ -101,6 +101,9 @@ pub struct AgentSpec {
     /// The other agents on the team: name and job, for `hand_off`
     #[serde(default)]
     pub team: Vec<(String, String)>,
+    /// MCP servers ({"mcpServers": {...}}, the usual format), for agents on Claude Code
+    #[serde(default)]
+    pub mcp: String,
 }
 
 /// Which AI it thinks with. The key never leaves this computer except to that provider.
@@ -550,7 +553,7 @@ impl Runtime {
             let dir = self.inner.dir.join("claude-code").join(safe(&spec.id));
             let msg = format!("{text}\n\n(Today is {}.)", today());
             c.messages.push(json!({"role": "user", "content": text}));
-            let r = claude_code::job(&dir, &brain.model, &system, &msg, session.as_deref(), &emit, &stop).await;
+            let r = claude_code::job(&dir, &brain.model, &system, &msg, session.as_deref(), &spec.mcp, &emit, &stop).await;
             return match r {
                 Ok((sid, words)) => {
                     c.messages.push(json!({"role": "assistant", "content": words, "session": sid}));
@@ -1239,7 +1242,7 @@ mod tests {
     use super::*;
     #[test]
     fn prompt_has_permissions() {
-        let a = AgentSpec { id: "s".into(), name: "Scout".into(), role: "Research".into(), instructions: "Find leads".into(), computer: "Cloud computer 1".into(), skills: vec![], team: vec![], secrets: vec!["GitHub password".into()], perms: vec![("Browse the web".into(), "allow".into()), ("Send email".into(), "ask".into()), ("Spend money".into(), "never".into())] };
+        let a = AgentSpec { id: "s".into(), name: "Scout".into(), role: "Research".into(), instructions: "Find leads".into(), computer: "Cloud computer 1".into(), skills: vec![], team: vec![], mcp: String::new(), secrets: vec!["GitHub password".into()], perms: vec![("Browse the web".into(), "allow".into()), ("Send email".into(), "ask".into()), ("Spend money".into(), "never".into())] };
         let p = system_prompt(&a, true, true, None);
         assert!(p.contains("without asking: browse the web"));
         assert!(p.contains("and: send email"));

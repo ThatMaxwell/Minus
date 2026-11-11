@@ -68,7 +68,7 @@ async fn complete(http: &reqwest::Client, brain: &Brain, system: &str, user: &st
         let emit: std::sync::Arc<dyn Fn(crate::Event) + Send + Sync> = std::sync::Arc::new(|_| {});
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let dir = std::env::temp_dir().join("minus-claude-code");
-        let (_, words) = crate::claude_code::job(&dir, &brain.model, system, user, None, &emit, &stop).await?;
+        let (_, words) = crate::claude_code::job(&dir, &brain.model, system, user, None, "", &emit, &stop).await?;
         return Ok((words, 0, 0));
     }
     let anthropic = brain.provider == "anthropic";
