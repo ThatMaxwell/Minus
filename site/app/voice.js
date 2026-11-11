@@ -58,7 +58,7 @@ const rms = (an, buf) => { an.getFloatTimeDomainData(buf); let s = 0; for (let i
 export class Listener {
   constructor({ onLevel = () => {}, onAutoStop = () => {} } = {}) { Object.assign(this, { onLevel, onAutoStop }); this.chunks = []; this.heard = 0; }
   async start() {
-    try { this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+    try { this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(state.settings.mic ? { deviceId: { ideal: state.settings.mic } } : {}) } }); }
     catch { throw new VoiceError('mic'); }
     const c = audio(), src = c.createMediaStreamSource(this.stream);
     this.an = c.createAnalyser(); this.an.fftSize = 1024; src.connect(this.an);

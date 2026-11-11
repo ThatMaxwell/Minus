@@ -8,6 +8,8 @@ import { PERMISSIONS } from './data.js';
 import * as nb from './notebook.js';
 import { pendingRun } from './teach.js';
 import { chime, notify } from './chime.js';
+import * as vault from './vault.js';
+import * as safety from './safety.js';
 
 const tauri = window.__TAURI__;
 export const desktop = !!tauri;
@@ -39,6 +41,7 @@ export async function refreshKeys() {
   emit('keys');
 }
 export const hasKey = (slot) => keyed.has(slot);
+export const slots = () => [...keyed];
 export async function setKey(slot, key) { await tauri.core.invoke('keys_set', { slot, key }); await refreshKeys(); }
 export async function removeKey(slot) { await tauri.core.invoke('keys_remove', { slot }); await refreshKeys(); }
 
@@ -80,6 +83,7 @@ const specOf = (a) => ({
   perms: PERMISSIONS.map((p) => [p.name, a.perms?.[p.id] || 'ask']),
   skills: (a.skills || []).map((s) => ({ id: s.id, name: s.name, about: s.about || '', steps: s.steps })),
   team: state.agents.filter((x) => x.id !== a.id && x.status !== 'off').map((x) => [x.name, x.role || '']),
+  secrets: vault.names(),
 });
 // Each agent can pick its own model for each AI (a.pick); otherwise the AI's default.
 export const modelOf = (a) => (a.pick || {})[a.model] || (providerState(a.model) || {}).modelId || ENGINES[a.model]?.model;
@@ -254,6 +258,10 @@ export function listen() {
       case 'browse':
         browsing.add(aid);
         emit('browse', { agent: aid, url: e.url, title: e.title });
+        break;
+      case 'moderate':
+        safety.apply(aid, e);
+        react(aid, e.action === 'warn' ? 'no' : 'worried');
         break;
       case 'gesture':
         gesture(aid, e.name);

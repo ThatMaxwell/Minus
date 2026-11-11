@@ -11,6 +11,7 @@ import { keySheet, connect } from './pages.js';
 import * as rt from '../runtime.js';
 import { musingHTML } from '../musing.js';
 import { pickModel, prettyModel } from './modelpick.js';
+import * as safety from '../safety.js';
 
 // While it's thinking (not on a named step), the agent's status is a word that keeps changing.
 const GENERIC = /^(Thinking…|Starting|Writing…|Working)$/;
@@ -68,6 +69,7 @@ export function chat(main) {
         <div class="thread-col">
           <div class="thread" role="log" aria-live="polite"></div>
           <form class="composer" autocomplete="off">
+            <div class="cmp-ban" hidden role="status"></div>
             <div class="cmp-box">
               <div class="cmp-files" hidden></div>
               <textarea rows="1" placeholder="Message ${esc(a.name)}…" aria-label="Message ${esc(a.name)}"></textarea>
@@ -197,7 +199,23 @@ export function chat(main) {
     lastLen = v.length;
   });
   ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
+  // banned or kicked by Minus: the box is closed, and says why and until when
+  const ban = $('.cmp-ban', main);
+  let banT = 0;
+  const showBan = () => {
+    clearTimeout(banT);
+    const b = safety.blocked();
+    form.classList.toggle('banned', !!b); ban.hidden = !b;
+    if (!b) return;
+    const left = b.until ? Math.max(0, b.until - Date.now()) : 0, mins = Math.ceil(left / 60e3);
+    const when = b.kind === 'permaban' ? 'until the owner lifts it in Settings' : left < 60e3 ? `for ${Math.ceil(left / 1000)} more seconds` : mins < 120 ? `for ${mins} more minutes` : `until ${new Date(b.until).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
+    ban.innerHTML = `<span class="ban-ic">${icon('shield')}</span><span class="ban-t"><b>${b.kind === 'kick' ? 'Kicked from the chat' : b.kind === 'permaban' ? 'Banned permanently' : 'Banned'}</b><small>${esc(b.reason ? `${b.reason} · ` : '')}You can’t talk to your agents ${esc(when)}.</small></span>`;
+    if (b.until) banT = setTimeout(showBan, left < 60e3 ? 1000 : 15e3);
+  };
+  showBan();
+  off.push(on('safety', showBan), () => clearTimeout(banT));
   const sendText = (text, via) => {
+    if (safety.blocked()) { showBan(); motion().animate(ban, { x: [0, -6, 6, -3, 3, 0] }, { duration: 0.35 }); return; }
     const fs = files; files = []; chips(); ta.placeholder = `Message ${a.name}…`;
     if (!text && fs.length) text = fs.length === 1 ? 'Here’s a file for you.' : `Here are ${fs.length} files for you.`;
     ta.value = ''; grow(); lastLen = 0;
@@ -542,6 +560,10 @@ export function msgHTML(a, m, prev, cont) {
       ${m.note && m.live ? `<p class="st-note">${esc(m.note)}</p>` : ''}
       <div class="st-list">${(m.steps || []).map((s, i, arr) => `<div class="st ${i === arr.length - 1 && m.live ? 'run' : 'done'}"><span class="ic">${i === arr.length - 1 && m.live ? '<i class="spin"></i>' : icon('check')}</span>${esc(s)}</div>`).join('') || (m.live ? '<div class="st run"><span class="ic"><i class="spin"></i></span>Starting…</div>' : '')}</div>
     </div>`;
+  } else if (m.kind === 'mod') {
+    const T = { warn: ['Warning', 'Minus keeps its rules on. If this goes on, you’ll be kicked.'], kick: ['Kicked from this chat', `${esc(a.name)} forgot this conversation. You can talk again in a minute.`], ban: [`Banned for ${m.minutes >= 120 ? Math.round(m.minutes / 60) + ' hours' : (m.minutes || 60) + ' minutes'}`, 'No talking to any of your agents until it’s over.'], permaban: ['Banned permanently', 'No talking to any agent until the owner of this computer lifts it in Settings → Safety.'], freshwipe: ['Last warning', 'Everything your agents remembered about you is erased. Next time it’s a ban.'] }[m.action] || ['Warning', ''];
+    body = `<div class="card mod-card ${esc(m.action)}"><div class="card-h">${icon('shield')}<span>${T[0]}</span></div>
+      ${m.reason ? `<p class="ask-what">${esc(m.reason)}</p>` : ''}<p class="ask-detail">${T[1]}</p></div>`;
   } else if (m.kind === 'question') {
     body = `<div class="card q-card ${m.answered ? 'done' : ''}">
       <div class="card-h">${icon('edit')}<span>${m.answered ? 'Answered' : 'Needs an answer'}</span></div>

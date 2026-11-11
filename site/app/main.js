@@ -1,12 +1,13 @@
 // Minus app preview: the desktop app's interface running in the browser.
 import { state, load, on, agent, go, save, pendingApprovals } from './store.js';
 import { $, $$, tooltips, icon, isMac } from './ui.js';
-import { installDefs, avatarSVG, COLORS } from '../js/shape.js';
+import { installDefs } from '../js/shape.js';
 import { keepNames } from '../js/names.js';
 import { idleWatch } from './director.js';
 import { sidebar } from './views/sidebar.js';
 import { chat, leaveChat } from './views/chat.js';
-import { approvals, routines, computers, settings } from './views/pages.js';
+import { approvals, routines, computers } from './views/pages.js';
+import { settings } from './views/settings.js';
 import { palette } from './views/palette.js';
 import { standup } from './views/standup.js';
 import { room } from './views/room.js';
@@ -42,7 +43,7 @@ document.documentElement.classList.toggle('calm', !state.settings.lively);
 const app = $('#app');
 app.innerHTML = `
   <header class="titlebar" data-tauri-drag-region>
-    <div class="tb-l">${isMac ? '<span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span>' : ''}<span class="logo">${avatarSVG(COLORS.cloud, { box: 112 })}<b>minus</b></span><span class="beta">Beta</span><span class="grow"></span><button class="icon-btn tb-side" data-side data-tip="Hide or show the sidebar|mod B" aria-label="Hide or show the sidebar">${icon('sidebar')}</button></div>
+    <div class="tb-l">${isMac ? '<span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span>' : ''}<span class="logo"><b>minus</b></span><span class="beta">Beta</span><span class="grow"></span><button class="icon-btn tb-side" data-side data-tip="Hide or show the sidebar|mod B" aria-label="Hide or show the sidebar">${icon('sidebar')}</button></div>
     <button class="tb-search" data-palette data-tip="Jump anywhere|mod K">${icon('search')}<span>Search agents and actions</span><kbd>${isMac ? '⌘' : 'Ctrl'} K</kbd></button>
     <div class="tb-r"><button class="icon-btn" data-go-approvals data-tip="Approvals">${icon('bell')}</button><button class="icon-btn" data-help data-tip="Keyboard shortcuts">${icon('keyboard')}</button>${tauri && !isMac ? `<span class="wc"><button data-wc="min" aria-label="Minimize"><svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg></button><button data-wc="max" aria-label="Maximize"><svg viewBox="0 0 12 12"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="1"/></svg></button><button data-wc="close" class="wc-x" aria-label="Close to the tray"><svg viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button></span>` : ''}</div>
   </header>

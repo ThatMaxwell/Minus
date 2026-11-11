@@ -571,7 +571,12 @@ pub fn run() {
         .invoke_handler(handlers())
         .setup(move |app| {
             let handle = app.handle().clone();
-            app.manage(Agents(agent::Runtime::new(app.path().app_data_dir()?.join("conversations"))));
+            let rt = agent::Runtime::new(app.path().app_data_dir()?.join("conversations"));
+            // the vault: agents type a secret by its name; the value comes from the keychain here
+            if let Ok(dir) = data_dir(&handle) {
+                rt.set_secrets(Arc::new(move |name: &str| keys::get(&dir, &format!("secret:{name}"))));
+            }
+            app.manage(Agents(rt));
 
             // minus:// links (sign-in coming back, a pairing code) reach the page, on every platform
             {

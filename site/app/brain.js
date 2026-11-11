@@ -1,6 +1,7 @@
 // A stand-in for the agent runtime: replies, runs work in steps on its computer, and
 // asks for approval before anything it can't undo. The desktop app swaps this for the
 // real runtime; the messages it posts have the same shapes.
+import * as safety from './safety.js';
 import { state, agent, computer, post, patchMessage, updateAgent, emit, id, save, APP } from './store.js';
 import { react } from './director.js';
 import * as rt from './runtime.js';
@@ -41,6 +42,9 @@ const plan = (text) => {
 
 export async function respond(aid, text, { here = false } = {}) {
   const a = agent(aid); if (!a) return;
+  // banned by Minus: nothing goes to the agents until it's over (or the owner lifts it)
+  if (safety.blocked()) return emit('safety');
+  if (safety.looksLikeJailbreak(text)) text = `${text}\n\n${safety.hint}`;
   if (answer(aid, text.trim())) return;
   // on the phone, a message to one of your PC's agents goes to the PC (link.js), unless you
   // asked the phone to answer it; agents made on the phone work right here

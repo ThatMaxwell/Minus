@@ -1,7 +1,7 @@
 // The agent's notebook: what it has learned about you and your work, as notes you can read,
 // fix and add to. The agent reads it before every job, and writes in it as it learns
 // ("remember" in the runtime). Nothing hidden: if it's not in the notebook, it doesn't know it.
-import { state, agent, updateAgent, id, emit, on } from './store.js';
+import { state, agent, updateAgent, id, emit, on, save } from './store.js';
 import { $, esc, icon, motion, IN, timeAgo, toast } from './ui.js';
 import { react } from './director.js';
 import * as teach from './teach.js';
@@ -10,6 +10,7 @@ const notes = (a) => (a.notebook ||= []);
 
 export function add(aid, text, by = 'agent') {
   const a = agent(aid); if (!a || !text?.trim()) return;
+  if (by === 'agent' && state.settings.memory === false) return; // you turned saving memories off
   const n = { id: id('note'), text: text.trim(), at: Date.now(), by };
   notes(a).unshift(n);
   updateAgent(aid, { notebook: a.notebook });
@@ -26,10 +27,33 @@ export function remove(aid, nid) {
   a.notebook = notes(a).filter((x) => x.id !== nid);
   updateAgent(aid, { notebook: a.notebook });
 }
-/** The notebook as text, handed to the agent with each job. */
+/* ───────── saved memories everyone knows: about you, shared by all your agents ───────── */
+export const shared = () => (state.settings.memories ||= []);
+export function addShared(text, by = 'you') {
+  if (!text?.trim()) return;
+  const n = { id: id('mem'), text: text.trim(), at: Date.now(), by };
+  shared().unshift(n); save(); emit('memories');
+  return n;
+}
+export function editShared(mid, text) { const n = shared().find((x) => x.id === mid); if (!n) return; n.text = text.trim(); n.edited = Date.now(); save(); emit('memories'); }
+export function removeShared(mid) { state.settings.memories = shared().filter((x) => x.id !== mid); save(); emit('memories'); }
+/** One agent's note becomes something every agent knows. */
+export function share(aid, nid) { const a = agent(aid), n = notes(a).find((x) => x.id === nid); if (!n) return; addShared(n.text, a.name); remove(aid, nid); }
+/** Every memory, gone: the shared ones and every agent's notebook (freshwipe, or you asked). */
+export function wipe() {
+  state.settings.memories = [];
+  for (const a of state.agents) { if (a.notebook?.length) updateAgent(a.id, { notebook: [] }); }
+  save(); emit('memories');
+}
+export const total = () => shared().length + state.agents.reduce((n, a) => n + (a.notebook?.length || 0), 0);
+
+/** The notebook as text, handed to the agent with each job (and what all agents know about you). */
 export function asText(a) {
-  const ns = notes(a).filter((n) => n.text);
-  return ns.length ? `Your notebook (things you've learned; use them):\n${ns.map((n) => `- ${n.text}`).join('\n')}` : '';
+  const ns = notes(a).filter((n) => n.text), all = shared().filter((n) => n.text);
+  return [
+    all.length ? `What you know about the person (shared by all their agents):\n${all.map((n) => `- ${n.text}`).join('\n')}` : '',
+    ns.length ? `Your notebook (things you've learned; use them):\n${ns.map((n) => `- ${n.text}`).join('\n')}` : '',
+  ].filter(Boolean).join('\n\n');
 }
 
 const card = (aid, n, i) => `<article class="nb-card ${n.by === 'you' ? 'yours' : ''}" data-nid="${esc(n.id)}" style="--tilt:${(i % 2 ? 0.6 : -0.5) * (i % 3 === 2 ? -1 : 1)}deg">
