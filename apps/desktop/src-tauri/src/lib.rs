@@ -107,6 +107,18 @@ fn data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     app.path().app_data_dir().map_err(|e| e.to_string())
 }
 
+/// Claude Code on this PC: installed? signed in?
+#[cfg(desktop)]
+#[tauri::command]
+async fn claude_code_status() -> serde_json::Value {
+    agent::claude_code::status().await
+}
+#[cfg(desktop)]
+#[tauri::command]
+fn claude_code_signin() -> Result<(), String> {
+    agent::claude_code::sign_in()
+}
+
 /// A file picked with + in a chat: kept in Minus's folder so the agent can open it by its path.
 #[tauri::command]
 fn attach_save(app: AppHandle, name: String, data: String) -> Result<String, String> {
@@ -128,6 +140,10 @@ async fn brain_of(app: &AppHandle, brain: BrainIn) -> Result<agent::Brain, Strin
     if brain.provider == "chatgpt-plan" {
         let s = plan_session(app).await?;
         return Ok(agent::Brain { provider: brain.provider, model: brain.model, key: s.access_token, effort: brain.effort, base_url: brain.base_url });
+    }
+    // Claude Code on this PC: its own sign-in, nothing for Minus to hold
+    if brain.provider == "claude-code" {
+        return Ok(agent::Brain { provider: brain.provider, model: brain.model, key: String::new(), effort: brain.effort, base_url: None });
     }
     let key = keys::get(&data_dir(app)?, &brain.slot).unwrap_or_default();
     if key.is_empty() && brain.provider != "ollama" {
@@ -779,7 +795,7 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
 /// The commands the app's pages can call.
 #[cfg(desktop)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![attach_save, hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout, cloud_connect, cloud_disconnect, cloud_regions, cloud_list, cloud_create, cloud_refresh, cloud_power, cloud_delete, orpheus_install, orpheus_codes, orpheus_remove]
+    tauri::generate_handler![attach_save, hands_windows, hands_look, hands_act, hands_screen, dock_fit, dock_notch, show_main, toggle_dock, agent_run, agent_caps, ai_check, browser_frame, agent_reply, agent_stop, agent_forget, keys_list, keys_set, keys_remove, ghost_pace, teach_start, teach_steps, teach_stop, skill_run, room_answer, room_sum_up, agent_rewind, voice_say, voice_list, voice_models, chatgpt_signin, chatgpt_status, chatgpt_signout, claude_code_status, claude_code_signin, cloud_connect, cloud_disconnect, cloud_regions, cloud_list, cloud_create, cloud_refresh, cloud_power, cloud_delete, orpheus_install, orpheus_codes, orpheus_remove]
 }
 #[cfg(mobile)]
 fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {

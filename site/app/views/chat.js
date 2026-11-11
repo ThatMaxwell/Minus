@@ -69,7 +69,7 @@ export function chat(main) {
               <div class="cmp-row">
                 <button type="button" class="icon-btn sm" data-act="attach" data-tip="Add files or photos">${icon('plus')}</button><input type="file" class="cmp-pick" multiple hidden>
                 <button type="button" class="cmp-chip" data-act="computer" data-tip="Which computer ${esc(a.name)} works on">${icon(comp?.kind === 'local' ? 'laptop' : 'cloud')}<span>${esc(comp?.name || 'No computer')}</span></button>
-                ${rt.onPlan(a.model) ? `<span class="plan-use">Using ChatGPT plan · <a href="https://chatgpt.com/settings/usage" data-plan-usage>Manage usage</a></span>` : ''}
+                ${rt.onPlan(a.model) ? `<span class="plan-use">Using ChatGPT plan · <a href="https://chatgpt.com/settings/usage" data-plan-usage>Manage usage</a></span>` : rt.onCode(a.model) ? `<span class="plan-use">Using Claude Code on this PC</span>` : ''}
                 <span class="grow"></span>
                 <button type="button" class="cmp-chip cmp-model" data-act="model" data-tip="Which AI ${esc(a.name)} thinks with, and how hard">${prov.icon}<span>${esc(rt.modelOf(a) ? prettyModel(rt.modelOf(a)) : prov.name)}</span><small>${{ low: 'Low', medium: 'Med', high: 'High' }[a.effort || 'medium']}</small></button>
                 <button type="button" class="icon-btn sm mic" data-act="mic" data-tip="Talk to ${esc(a.name)}|mod J" aria-label="Talk to ${esc(a.name)}">${icon('mic')}<span class="mic-ring"></span></button>

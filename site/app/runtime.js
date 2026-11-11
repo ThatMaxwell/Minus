@@ -74,7 +74,17 @@ export function pickModel(pid, models, wanted) {
 /** True when this agent should run on the real runtime. */
 /** Uses a ChatGPT plan (signed in) rather than an API key. */
 export const onPlan = (pid) => pid === 'chatgpt' && !!providerState('chatgpt')?.plan && keyed.has('chatgpt-plan');
-export const ready = (a) => !!tauri && !!a && (keyed.has(a.model) || a.model === 'ollama' || onPlan(a.model)) && !!ENGINES[a.model];
+/* ───────── Claude Code on this PC: agents work through your own signed-in `claude` ───────── */
+let code = null;
+export async function codeStatus() {
+  if (!tauri || !desktop) return null;
+  try { code = await tauri.core.invoke('claude_code_status'); } catch { code = null; }
+  emit('keys'); return code;
+}
+export const codeInfo = () => code;
+export const onCode = (pid) => pid === 'claude' && !!providerState('claude')?.viaCode && !!code?.installed;
+export const codeSignIn = () => tauri.core.invoke('claude_code_signin');
+export const ready = (a) => !!tauri && !!a && (keyed.has(a.model) || a.model === 'ollama' || onPlan(a.model) || onCode(a.model)) && !!ENGINES[a.model];
 
 /* ───────── Sign in with ChatGPT (agents use your ChatGPT plan, no API key) ───────── */
 export async function planSignIn() {
@@ -101,7 +111,7 @@ const specOf = (a) => ({
 });
 // Each agent can pick its own model for each AI (a.pick); otherwise the AI's default.
 export const modelOf = (a) => (a.pick || {})[a.model] || (providerState(a.model) || {}).modelId || ENGINES[a.model]?.model;
-const brainOf = (a) => { const eng = ENGINES[a.model], ps = providerState(a.model) || {}; return { provider: onPlan(a.model) ? 'chatgpt-plan' : eng.provider, slot: a.model, model: modelOf(a), effort: a.effort || 'medium', base_url: ps.baseUrl || null }; };
+const brainOf = (a) => { const eng = ENGINES[a.model], ps = providerState(a.model) || {}; return { provider: onPlan(a.model) ? 'chatgpt-plan' : onCode(a.model) ? 'claude-code' : eng.provider, slot: a.model, model: modelOf(a), effort: a.effort || 'medium', base_url: ps.baseUrl || null }; };
 
 /** Ask the room: this agent's answer, with its own AI and no tools. */
 export async function roomAnswer(a, question, others = [], round = 1) {
@@ -188,6 +198,7 @@ export function listen() {
   if (!tauri) return;
   refreshKeys();
   applyPace();
+  codeStatus();
   tauri.core.invoke('agent_caps').then((c) => { if (c) { caps = c; emit('caps', c); } }).catch(() => {});
   // your real cloud computers
   if (!/Android/i.test(navigator.userAgent)) import('./cloud.js').then((c) => c.sync()).catch(() => {});

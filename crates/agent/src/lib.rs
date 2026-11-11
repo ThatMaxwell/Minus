@@ -23,6 +23,8 @@ pub mod tts;
 pub mod orpheus;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod cloud;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub mod claude_code;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -217,6 +219,8 @@ fn family(b: &Brain) -> String {
         "anthropic" => "anthropic".into(),
         // a ChatGPT plan speaks OpenAI's Responses API
         "chatgpt-plan" => "responses".into(),
+        // Claude Code on this PC keeps its own history; Minus keeps the session to continue
+        "claude-code" => "claude-code".into(),
         p => format!("openai:{p}"),
     }
 }
@@ -539,6 +543,27 @@ impl Runtime {
         let fam = family(&brain);
         let convo = self.convo(&spec.id, &fam);
         let mut c = convo.lock().await;
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        if fam == "claude-code" {
+            let session = c.messages.iter().rev().find_map(|m| m["session"].as_str().map(str::to_string));
+            let system = format!("{}\n\nRight now you work through Claude Code on the person's PC, in your own folder. Your tools are Claude Code's: read files, search and read the web, and write files in your folder. Minus's own tools mentioned above (the screen, the browser, asking, handing off) aren't available in this mode, so ask the person in plain words when you need them.", system_prompt(&spec, false, false, None));
+            let dir = self.inner.dir.join("claude-code").join(safe(&spec.id));
+            let msg = format!("{text}\n\n(Today is {}.)", today());
+            c.messages.push(json!({"role": "user", "content": text}));
+            let r = claude_code::job(&dir, &brain.model, &system, &msg, session.as_deref(), &emit, &stop).await;
+            return match r {
+                Ok((sid, words)) => {
+                    c.messages.push(json!({"role": "assistant", "content": words, "session": sid}));
+                    self.save(&spec.id, &c);
+                    emit(Event::Done { text: words });
+                    Ok(())
+                }
+                Err(e) => {
+                    self.save(&spec.id, &c);
+                    Err(e)
+                }
+            };
+        }
         let remote = self.remote_of(&spec.id);
         let hands = if remote.is_some() { Err("This agent works on a cloud computer.".to_string()) } else { self.hands() };
         let computer = hands.is_ok();

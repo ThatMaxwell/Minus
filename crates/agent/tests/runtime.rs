@@ -424,3 +424,21 @@ async fn making_a_computer_on_hetzner() {
     assert_eq!(made["ssh_keys"], json!([77]));
     assert!(made["user_data"].as_str().unwrap().contains(&public) && made["user_data"].as_str().unwrap().starts_with("#cloud-config"));
 }
+
+/// Claude Code on this PC: the job goes through `claude`, its work shows as steps, and the
+/// session is kept to continue next time. (Set MINUS_FAKE_CLAUDE to a folder with a fake `claude`.)
+#[tokio::test(flavor = "multi_thread")]
+async fn a_job_through_claude_code() {
+    let Ok(dir) = std::env::var("MINUS_FAKE_CLAUDE") else { return };
+    unsafe { std::env::set_var("PATH", format!("{dir}:{}", std::env::var("PATH").unwrap_or_default())) };
+    let data = std::env::temp_dir().join(format!("minus-cc-{}", std::process::id()));
+    let rt = Runtime::new(data.clone());
+    let b = Brain { provider: "claude-code".into(), model: "claude-opus-5-5".into(), key: String::new(), effort: None, base_url: None };
+    let ev = job(&rt, b.clone(), "Find coffee");
+    assert!(ev.iter().any(|e| matches!(e, Event::Step { text } if text == "Search the web for “coffee near me”")), "{ev:?}");
+    match ev.last() { Some(Event::Done { text }) => assert!(text.starts_with("Found 3 coffee shops")), other => panic!("ended with {other:?}") }
+    let _ = job(&rt, b, "And tea?");
+    let args = std::fs::read_to_string(data.join("claude-code").join("a1").join("args.txt")).unwrap();
+    assert!(args.contains("--resume sess-42"), "the second job continues: {args}");
+    assert!(args.contains("--disallowedTools Bash"), "{args}");
+}

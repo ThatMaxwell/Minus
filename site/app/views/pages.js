@@ -180,10 +180,15 @@ export function connect(pid, done) {
   const p = provider(pid), eng = rt.ENGINES[pid] || {}, ps = providerState(pid) || {};
   const local = p.local, custom = eng.custom;
   const plan = pid === 'chatgpt' && rt.desktop;
+  const viaCode = pid === 'claude' && rt.desktop;
   const s = sheet(`<form class="mini-form"><h3>${p.icon} Connect ${p.name}</h3>
     ${plan ? `<button type="button" class="siwc" data-siwc>${p.icon}<span>Continue with ChatGPT</span></button>
     <p class="muted small siwc-note">Your agents use your ChatGPT plan (Plus or Pro). No API key, nothing extra to pay. You can cap how much Minus uses in ChatGPT’s settings.</p>
     <p class="hint-line warn" data-perr></p>
+    <div class="or-line"><span>or use an API key</span></div>` : ''}
+    ${viaCode ? `<button type="button" class="siwc" data-cc>${p.icon}<span>Use Claude Code on this PC</span></button>
+    <p class="muted small siwc-note">Agents work through Claude Code, signed in with your own Claude plan. Your phone can use it too while this PC is on. <b>Anthropic hasn’t approved plans for apps like Minus</b>, so use it at your own risk. An API key is the safe way.</p>
+    <p class="hint-line warn" data-cerr></p>
     <div class="or-line"><span>or use an API key</span></div>` : ''}
     <p class="muted small">${local ? 'Minus talks to Ollama on this computer. Install it from ollama.com and pull a model first.' : `Paste an API key${eng.where ? ` from <b>${esc(eng.where)}</b>` : ''}. It’s kept on this ${/Android/i.test(navigator.userAgent) ? 'phone' : 'computer’s password store'} and only ever sent to ${esc(p.by && !custom ? p.by : 'that provider')}.`}</p>
     ${local ? '' : `<label class="lbl" for="ck">API key</label><input id="ck" class="field mono" type="password" name="k" placeholder="${esc(eng.keyHint || 'API key')}" ${ps.connected ? '' : 'required'} autocomplete="off" spellcheck="false">`}
@@ -194,6 +199,25 @@ export function connect(pid, done) {
     <div class="row-end"><button type="button" class="btn btn-quiet btn-sm" data-x>Cancel</button><button class="btn btn-primary btn-sm">Connect</button></div></form>`, { cls: 'small' });
   $('[data-x]', s.el).onclick = s.close;
   if (!plan) setTimeout(() => $('input', s.el)?.focus(), 30);
+  const cb = $('[data-cc]', s.el);
+  if (cb) cb.onclick = async () => {
+    const cerr = $('[data-cerr]', s.el), lbl = cb.lastElementChild;
+    cb.disabled = true; lbl.textContent = 'Looking for Claude Code…'; cerr.textContent = '';
+    const st0 = await rt.codeStatus();
+    if (!st0?.installed) { cerr.innerHTML = 'Claude Code isn’t on this PC yet. Install it from <a href="https://claude.com/claude-code" target="_blank" rel="noopener" data-ext>claude.com/claude-code</a>, then press this again.'; cb.disabled = false; lbl.textContent = 'Use Claude Code on this PC'; return; }
+    if (st0.signed_in === false) {
+      try { await rt.codeSignIn(); } catch (x) { cerr.textContent = String(x?.message || x); }
+      lbl.textContent = 'Sign in in the window that opened…';
+      for (let i = 0; i < 90; i++) { await new Promise((r) => setTimeout(r, 2000)); if ((await rt.codeStatus())?.signed_in) break; if (!document.body.contains(cb)) return; }
+      if (!rt.codeInfo()?.signed_in) { cerr.textContent = 'Not signed in yet. Finish in the terminal window, then press this again.'; cb.disabled = false; lbl.textContent = 'Use Claude Code on this PC'; return; }
+    }
+    const st = providerState(pid);
+    st.connected = true; st.viaCode = { who: rt.codeInfo()?.who || '', at: Date.now() };
+    st.modelId ||= eng.model;
+    save(); s.close(); done();
+    toast('Claude agents now work through Claude Code on this PC', { icon: 'check' });
+    import('../brain.js').then((b) => b.aiConnected(pid));
+  };
   const sb = $('[data-siwc]', s.el);
   if (sb) sb.onclick = async () => {
     const perr = $('[data-perr]', s.el);
