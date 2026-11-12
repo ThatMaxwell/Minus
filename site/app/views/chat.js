@@ -1,6 +1,7 @@
 // A conversation with one agent, its live computer, and the composer.
 import { state, on, agent, computer, updateAgent, go, emit, save, providerState, post, id, APP, patchMessage } from '../store.js';
 import { $, $$, esc, md, icon, face, mountMascots, mascotsOf, menu, sheet, toast, motion, IN, mod, timeAgo } from '../ui.js';
+import * as link from '../link.js';
 import { react } from '../director.js';
 import { respond, choose, resolve } from '../brain.js';
 import { provider, PROVIDERS, STATUS } from '../data.js';
@@ -53,7 +54,7 @@ export function chat(main) {
           <button class="icon-btn" data-act="pause" data-tip="${a.status === 'paused' ? 'Resume' : 'Pause'} ${esc(a.name)}">${icon(a.status === 'paused' ? 'play' : 'pause')}</button>
           <button class="icon-btn" data-act="more" data-tip="More">${icon('more')}</button>
           <span class="sep"></span>
-          <button class="icon-btn ${state.panel ? 'on' : ''}" data-act="panel" data-tip="${state.panel ? 'Hide' : 'Show'} ${esc(a.name)}’s computer|mod .">${icon('panel')}</button>
+          <button class="icon-btn ${state.panel ? 'on' : ''} ${link.linked() ? 'ph-pc' : ''}" data-act="panel" data-tip="${state.panel ? 'Hide' : 'Show'} ${esc(a.name)}’s computer|mod ." aria-label="See your PC">${icon(/Android/i.test(navigator.userAgent) ? 'monitor' : 'panel')}</button>
         </div>
         <i class="ch-work" aria-hidden="true"></i>
       </header>
@@ -366,9 +367,25 @@ export function chat(main) {
     const box = $('.pcp-sim', main);
     box.innerHTML = `<div class="pcp-live"><img alt="${esc(a.name)}’s screen, live"><i class="pcp-mark" hidden></i></div><p class="pcp-msg" hidden></p>`;
     const img = $('.pcp-live img', box), mark = $('.pcp-mark', box), msg = $('.pcp-msg', box);
-    let shot = null, timer = 0, gone = false;
+    let shot = null, timer = 0, gone = false, stopPC = null;
     const tick = async () => {
       if (gone || !main.contains(box)) return;
+      // on the phone, linked to your PC: watch your PC's screen live
+      if (!rt.canUseComputer() && /Android/i.test(navigator.userAgent) && link.linked()) {
+        if (!stopPC) {
+          msg.hidden = false; msg.textContent = 'Connecting to your PC…';
+          import('../pcview.js').then((v) => {
+            if (gone) return;
+            stopPC = v.watch((f) => {
+              if (f.error) { img.hidden = true; msg.hidden = false; msg.textContent = f.error; return; }
+              img.src = f.jpg; img.hidden = false; msg.hidden = true;
+            });
+            off.push(() => stopPC?.());
+            setTimeout(() => { if (img.hidden && !gone) msg.textContent = 'Your PC isn’t answering. Is Minus open on it?'; }, 12000);
+          });
+        }
+        return;
+      }
       if (!rt.canUseComputer()) {
         // nothing to watch here: agents on this device think and write instead
         img.hidden = true; msg.hidden = false;

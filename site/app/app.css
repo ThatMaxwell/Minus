@@ -1178,3 +1178,17 @@ html.calm *, html.calm *::before { animation-play-state: paused !important; }
 /* the agent's face sits under its reply, and its feelings show there live */
 .m.ag .m-foot { margin-top: 6px; height: 30px; }
 .m.ag:has(+ .m.ag.cont) .m-foot { display: none; }
+/* the phone's home: the PC's sidebar, at phone size */
+.home .hm-search { margin: 4px 0 10px; } .home .hm-search label { height: 42px; border-radius: 13px; } .home .hm-search input { font-size: 15px; }
+.home .hm-pins { margin: 2px 0 10px; }
+.home .hm-agents { display: flex; flex-direction: column; gap: 2px; }
+.home .hm-agents .ag-row { grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; padding: 10px 8px; border-radius: 14px; }
+.home .hm-agents .ag-row .face { --s: 44px !important; }
+.home .hm-agents .ag-top b { font-size: 16px; } .home .hm-agents .ag-last { font-size: 13.5px; }
+/* the phone: your PC's screen, live, over the chat */
+.phone .ch-tools > [data-act="panel"].ph-pc { display: inline-grid; }
+.phone .chat.with-panel .pc-panel { display: flex !important; flex-direction: column; position: fixed; z-index: 30; left: 10px; right: 10px; top: calc(64px + env(safe-area-inset-top)); bottom: calc(96px + env(safe-area-inset-bottom)); border-radius: 20px; background: #0d0d0f; box-shadow: 0 20px 60px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.08); overflow: hidden; }
+.phone .chat.with-panel .pc-panel .pcp-log { display: none; }
+.phone .chat.with-panel .pc-panel .pcp-screen { flex: 1; min-height: 0; display: grid; place-items: center; }
+.phone .chat.with-panel .pc-panel .pcp-live img { width: 100%; height: auto; object-fit: contain; border-radius: 10px; }
+.phone .chat.with-panel .pc-panel .pcp-seg, .phone .chat.with-panel .pc-panel .pcp-h .btn { display: none; }

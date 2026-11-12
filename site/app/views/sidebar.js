@@ -41,6 +41,21 @@ function last(a) {
   return { text: a.role || 'New agent', at: 0 };
 }
 
+const status = (a) => (a.status === 'working' ? musingHTML(a, 'mz-row') : esc(last(a).text));
+export const row = (a) => {
+  const l = last(a);
+  return `<button class="ag-row ${a.unread ? 'has-new' : ''}" role="listitem" data-agent="${esc(a.id)}">
+    ${face(a, 34)}
+    <span class="ag-meta"><span class="ag-top"><b>${esc(a.name)}</b><time>${l.at ? esc(timeAgo(l.at)) : ''}</time></span>
+      <small class="ag-last ${a.status === 'waiting' ? 'needs' : ''}">${status(a)}</small></span>
+    ${a.unread ? `<b class="unread">${a.unread}</b>` : a.status === 'waiting' ? '<i class="dot amber"></i>' : ''}
+  </button>`;
+};
+export const pinHTML = (a) => `<button class="pin" data-agent="${esc(a.id)}" data-tip="${esc(a.role || a.name)}">${face(a, pinned().length > 1 ? 52 : 68, 'data-idle="1"')}<b>${esc(a.name)}</b>${a.status === 'working' ? musingHTML(a, 'mz-pin') : a.unread ? `<small>${a.unread} new</small>` : ''}</button>`;
+/** Pinned agents first, then everyone else, most recent first (the phone's home uses it too). */
+export const order = (match = () => true) => { const pin = new Set(pinned()); return { pins: pinned().map(agent).filter(match), rest: state.agents.filter((a) => !pin.has(a.id) && match(a)).sort((x, y) => last(y).at - last(x).at) }; };
+export { last };
+
 export function sidebar(el) {
   el.innerHTML = `
     <div class="sb-search"><label>${icon('search')}<input type="search" placeholder="Search agents and chats" aria-label="Search agents and chats" spellcheck="false"></label>
@@ -55,17 +70,6 @@ export function sidebar(el) {
 
   const list = $('.ag-list', el), pins = $('.sb-pins', el), search = $('.sb-search input', el);
   let q = '';
-  const status = (a) => (a.status === 'working' ? musingHTML(a, 'mz-row') : esc(last(a).text));
-  const row = (a) => {
-    const l = last(a);
-    return `<button class="ag-row ${a.unread ? 'has-new' : ''}" role="listitem" data-agent="${esc(a.id)}">
-      ${face(a, 34)}
-      <span class="ag-meta"><span class="ag-top"><b>${esc(a.name)}</b><time>${l.at ? esc(timeAgo(l.at)) : ''}</time></span>
-        <small class="ag-last ${a.status === 'waiting' ? 'needs' : ''}">${status(a)}</small></span>
-      ${a.unread ? `<b class="unread">${a.unread}</b>` : a.status === 'waiting' ? '<i class="dot amber"></i>' : ''}
-    </button>`;
-  };
-  const pinHTML = (a) => `<button class="pin" data-agent="${esc(a.id)}" data-tip="${esc(a.role || a.name)}">${face(a, pinned().length > 1 ? 52 : 68, 'data-idle="1"')}<b>${esc(a.name)}</b>${a.status === 'working' ? musingHTML(a, 'mz-pin') : a.unread ? `<small>${a.unread} new</small>` : ''}</button>`;
   const matches = (a) => !q || [a.name, a.role, last(a).text].join(' ').toLowerCase().includes(q);
   const build = () => {
     const pin = new Set(pinned());

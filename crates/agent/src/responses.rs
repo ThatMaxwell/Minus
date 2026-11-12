@@ -47,6 +47,11 @@ fn input(history: &[Value], keep_reasoning: bool) -> Vec<Value> {
             }
             Some("tool_batch") => {
                 for r in m["items"].as_array().cloned().unwrap_or_default() {
+                    if r["role"] == "user" {
+                        let parts: Vec<Value> = r["content"].as_array().cloned().unwrap_or_default().into_iter().map(|p| if p["type"] == "image_url" { json!({"type": "input_image", "image_url": p["image_url"]["url"]}) } else { json!({"type": "input_text", "text": p["text"]}) }).collect();
+                        out.push(json!({"role": "user", "content": parts}));
+                        continue;
+                    }
                     out.push(json!({"type": "function_call_output", "call_id": r["tool_call_id"], "output": r["content"]}));
                 }
             }

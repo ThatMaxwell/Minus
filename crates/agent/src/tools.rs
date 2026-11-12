@@ -70,6 +70,13 @@ pub fn custom_tools(computer: bool, browser: bool, shell: bool) -> Vec<Value> {
             }}
         }),
         json!({
+            "name": "screenshot",
+            "description": "Take a picture of the whole screen, or of one app's window, and see it. Use it to check how something looks, read what an app shows that `look` can't (images, charts, games, video), or show the person. Give `window` (part of its title, or the app like \"chrome.exe\") for just that app; leave it out for the whole screen.",
+            "input_schema": {"type": "object", "properties": {
+                "window": {"type": "string", "description": "Part of the window title or the app's file name. Leave out for the whole screen."}
+            }}
+        }),
+        json!({
             "name": "windows",
             "description": "List the open windows (title and app). Use it to find the window you need.",
             "input_schema": {"type": "object", "properties": {}}
@@ -143,7 +150,7 @@ pub fn custom_tools(computer: bool, browser: bool, shell: bool) -> Vec<Value> {
             "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
         }),
     ];
-    const NEEDS_COMPUTER: [&str; 4] = ["look", "windows", "act", "use_skill"];
+    const NEEDS_COMPUTER: [&str; 5] = ["look", "windows", "act", "use_skill", "screenshot"];
     const NEEDS_BROWSER: [&str; 3] = ["browser_open", "browser_look", "browser_act"];
     const NEEDS_SHELL: [&str; 1] = ["run"];
     all.into_iter()
@@ -398,6 +405,29 @@ fn describe(a: &Action, s: &Snapshot) -> String {
 fn short(s: &str) -> String {
     let s = s.replace('\n', " ");
     if s.chars().count() > 40 { format!("{}…", s.chars().take(39).collect::<String>()) } else { s }
+}
+
+/// The `screenshot` tool: the whole screen, or one window, as an image the model sees.
+pub fn screenshot(hands: &Hands, window: Option<&str>, step: &dyn Fn(Event)) -> Result<Value, String> {
+    use base64::Engine;
+    let (shot, what) = match window.map(str::trim).filter(|w| !w.is_empty()) {
+        None => (hands.screenshot_for_model(SCREENSHOT_EDGE).map_err(|e| e.to_string())?, "the screen".to_string()),
+        Some(w) => {
+            let low = w.to_lowercase();
+            let wins = hands.windows().map_err(|e| e.to_string())?;
+            let win = wins.iter().filter(|x| !x.minimized).find(|x| x.title.to_lowercase().contains(&low) || x.app.to_lowercase().contains(&low))
+                .ok_or_else(|| format!("No open window matches \"{w}\". Call `windows` to see what's open."))?;
+            if !win.focused {
+                // in front first, so nothing covers it
+                let _ = hands.act(vec![hands::Action::Activate { target: hands::Target::Handle(win.handle) }], false);
+                std::thread::sleep(std::time::Duration::from_millis(250));
+            }
+            (hands.screenshot_of(win.bounds, SCREENSHOT_EDGE).map_err(|e| e.to_string())?, if win.title.is_empty() { win.app.clone() } else { win.title.clone() })
+        }
+    };
+    step(Event::Step { text: format!("Take a picture of {}", short(&what)) });
+    let data = base64::engine::general_purpose::STANDARD.encode(&shot.png);
+    Ok(json!([{"type": "text", "text": format!("Screenshot of {what} ({}×{}).", shot.width, shot.height)}, {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}]))
 }
 
 /* ───────── Anthropic's computer toolset (pixel actions + screenshots), on Hands ───────── */

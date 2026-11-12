@@ -236,16 +236,30 @@ fn parse(text: &str) -> Result<Turn, AgentError> {
 }
 
 pub fn results(rs: Vec<CallResult>) -> Value {
-    let items: Vec<Value> = rs
+    let mut images = Vec::new();
+    let mut items: Vec<Value> = rs
         .into_iter()
         .map(|r| {
             let content = match r.content {
                 Value::String(s) => s,
+                // text and pictures (a screenshot): the words here, the pictures after
+                Value::Array(parts) if parts.iter().any(|p| p["type"] == "image") => {
+                    for p in parts.iter().filter(|p| p["type"] == "image") {
+                        images.push(json!({"type": "image_url", "image_url": {"url": format!("data:{};base64,{}", p["source"]["media_type"].as_str().unwrap_or("image/png"), p["source"]["data"].as_str().unwrap_or(""))}}));
+                    }
+                    let t: Vec<&str> = parts.iter().filter_map(|p| p["text"].as_str()).collect();
+                    format!("{} (the picture is in the next message)", t.join(" "))
+                }
                 other => other.to_string(),
             };
             json!({"role": "tool", "tool_call_id": r.id, "content": if r.is_error { format!("Error: {content}") } else { content }})
         })
         .collect();
+    if !images.is_empty() {
+        let mut c = vec![json!({"type": "text", "text": "(Minus:) The screenshot you took:"})];
+        c.extend(images);
+        items.push(json!({"role": "user", "content": c}));
+    }
     json!({"role": "tool_batch", "items": items})
 }
 
@@ -258,6 +272,13 @@ mod tests {
         assert_eq!(t.calls.len(), 1);
         assert_eq!(t.calls[0].input["window"], "notepad.exe");
         assert!(matches!(t.stop, Stop::Tools));
+    }
+    #[test]
+    fn screenshots_go_as_pictures() {
+        let r = results(vec![CallResult { id: "c1".into(), content: json!([{"type": "text", "text": "Screenshot of the screen."}, {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AAA"}}]), is_error: false, toolset: None }]);
+        let items = r["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[1]["content"][1]["image_url"]["url"], "data:image/png;base64,AAA");
     }
     #[test]
     fn endpoints() {

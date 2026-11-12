@@ -293,6 +293,12 @@ impl Hands {
     pub fn screenshot_for_model(&self, max_edge: u32) -> Result<Shot> {
         self.inner.screenshot(max_edge)
     }
+    /// Just one part of the screen (a window's bounds, in screen pixels), no bigger than
+    /// `max_edge` on its long side.
+    pub fn screenshot_of(&self, area: Rect, max_edge: u32) -> Result<Shot> {
+        let full = self.inner.screenshot(u32::MAX)?;
+        crop(&full, area, max_edge)
+    }
 }
 
 /// "Show me once": records what you do, by meaning, until stopped. One at a time.
@@ -414,8 +420,46 @@ pub(crate) fn encode_scaled(px: &[u8], w: u32, h: u32, max_edge: u32) -> Result<
     Ok((png, nw, nh, scale))
 }
 
+/// Cuts `area` (screen pixels) out of a full-size shot and shrinks it to `max_edge`.
+pub(crate) fn crop(full: &Shot, area: Rect, max_edge: u32) -> Result<Shot> {
+    let dec = png::Decoder::new(std::io::Cursor::new(&full.png));
+    let mut r = dec.read_info().map_err(|e| HandsError::Os(e.to_string()))?;
+    let mut buf = vec![0u8; r.output_buffer_size().unwrap_or(0)];
+    let info = r.next_frame(&mut buf).map_err(|e| HandsError::Os(e.to_string()))?;
+    let ch = match info.color_type { png::ColorType::Rgba => 4, png::ColorType::Rgb => 3, _ => return Err(HandsError::Os("unexpected screenshot format".into())) };
+    let (fw, fh) = (info.width as i32, info.height as i32);
+    // screen pixels -> picture pixels
+    let k = 1.0 / full.scale.max(1e-6);
+    let x0 = (((area.x - full.origin_x) as f64) / k).round().clamp(0.0, fw as f64) as i32;
+    let y0 = (((area.y - full.origin_y) as f64) / k).round().clamp(0.0, fh as f64) as i32;
+    let x1 = (((area.x + area.w - full.origin_x) as f64) / k).round().clamp(0.0, fw as f64) as i32;
+    let y1 = (((area.y + area.h - full.origin_y) as f64) / k).round().clamp(0.0, fh as f64) as i32;
+    let (w, h) = ((x1 - x0).max(1) as u32, (y1 - y0).max(1) as u32);
+    if x1 <= x0 || y1 <= y0 {
+        return Err(HandsError::Os("that window isn't on the screen (it may be minimized)".into()));
+    }
+    let mut px = Vec::with_capacity((w * h * 4) as usize);
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let i = ((y * fw + x) as usize) * ch;
+            px.extend_from_slice(&buf[i..i + 3]);
+            px.push(if ch == 4 { buf[i + 3] } else { 255 });
+        }
+    }
+    let (png, nw, nh, scale) = encode_scaled(&px, w, h, max_edge)?;
+    Ok(Shot { png, width: nw, height: nh, scale: scale * full.scale, origin_x: area.x.max(full.origin_x), origin_y: area.y.max(full.origin_y) })
+}
+
 #[cfg(test)]
 mod more_tests {
+    #[test]
+    fn crops_a_window() {
+        let px: Vec<u8> = (0..(40 * 20)).flat_map(|i| [(i % 40) as u8, (i / 40) as u8, 0, 255]).collect();
+        let (png, w, h, _) = super::encode_scaled(&px, 40, 20, 100).unwrap();
+        let full = super::Shot { png, width: w, height: h, scale: 1.0, origin_x: 0, origin_y: 0 };
+        let c = super::crop(&full, super::Rect { x: 10, y: 5, w: 20, h: 10 }, 100).unwrap();
+        assert_eq!((c.width, c.height, c.origin_x, c.origin_y), (20, 10, 10, 5));
+    }
     use super::*;
     fn el(id: u32, key: &str) -> Element {
         Element { id, role: "button".into(), name: key.into(), value: None, bounds: Rect::default(), enabled: true, focused: false, checked: None, expanded: None, selected: None, can: vec![], key: key.into(), depth: 0, children: vec![] }

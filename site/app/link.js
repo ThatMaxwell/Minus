@@ -138,6 +138,7 @@ export async function start() {
       for (const a of state.agents) for (const m of (state.threads[a.id] || []).slice(-30)) publishMessage(a.id, m);
       // tell the phone this PC is on, and keep telling it
       acct.heartbeat().catch(() => {});
+      import('./pcview.js').then((v) => v.serve()).catch(() => {});
       setInterval(() => acct.heartbeat().catch(() => {}), 60000);
       // what you sent from the phone while this PC was off (the last day of it)
       const since = new Date(Date.now() - 864e5).toISOString();

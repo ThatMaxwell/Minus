@@ -884,6 +884,12 @@ impl Runtime {
                             Err(e) => (json!(e), true),
                         };
                     }
+                    if name == "screenshot" {
+                        return match tools::screenshot(&h, input.get("window").and_then(|w| w.as_str()), &step) {
+                            Ok(v) => (v, false),
+                            Err(e) => (json!(e), true),
+                        };
+                    }
                     let out = match name.as_str() {
                         "look" => sc.look(&h, input.get("window").and_then(|w| w.as_str()), &step),
                         "windows" => sc.windows(&h),
